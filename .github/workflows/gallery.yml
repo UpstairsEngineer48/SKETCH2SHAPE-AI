@@ -1,0 +1,34 @@
+name: Update gallery
+
+# When new job folders are pushed to backend/base/outputs/, regenerate GALLERY.md
+# and commit it back. No GitHub Pages or sign-up needed.
+on:
+  push:
+    paths:
+      - "backend/base/outputs/**"
+      - "tools/build_gallery.py"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  gallery:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history so "newest first" ordering works
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python tools/build_gallery.py --markdown
+      - name: Commit GALLERY.md if it changed
+        run: |
+          if [ -n "$(git status --porcelain GALLERY.md)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add GALLERY.md
+            git commit -m "Update gallery"
+            git push
+          fi
