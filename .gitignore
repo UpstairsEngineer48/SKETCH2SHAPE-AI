@@ -30,3 +30,17 @@ node_modules/
 
 # Misc
 *.bak
+# Python test/cache artifacts
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Generated 3D jobs and downloaded model repositories / checkpoints
+backend/outputs/*
+!backend/outputs/.gitkeep
+backend/vendor/
+backend/.cache/
+*.glb
+*.obj
+*.mtl
+*.ply

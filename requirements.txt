@@ -1,0 +1,10 @@
+# Core API and asset validation. Install PyTorch separately for your CUDA setup.
+fastapi>=0.110,<1.0
+uvicorn[standard]>=0.27,<1.0
+python-multipart>=0.0.9
+python-dotenv>=1.0
+Pillow>=10.1
+numpy>=1.26,<2.0
+trimesh>=4.0
+opencv-python-headless>=4.9
+

@@ -166,7 +166,7 @@ export default function App() {
         <div className="topbar-right">
           <div className={`api-status api-${apiState}`} title={apiDetail}>
             <span className="api-status-dot" />
-            <span>{apiState === 'checking' ? 'Checking API' : apiState === 'online' ? 'API connected' : apiState === 'warming' ? 'model loading' : 'API offline'}</span>
+            <span>{apiState === 'checking' ? 'Checking API' : apiState === 'online' ? 'API connected' : apiState === 'warming' ? 'Model loading' : 'API offline'}</span>
           </div>
           <button
             type="button"
@@ -307,6 +307,16 @@ export default function App() {
                 </button>
               </div>
             </div>
+
+            {output?.note && (
+              <div className="output-note" role="status">
+                <Icon name="info" size={15} />
+                <span>{output.note}</span>
+                {output.mesh && (
+                  <small>{output.mesh.vertices.toLocaleString()} vertices · {output.mesh.faces.toLocaleString()} faces</small>
+                )}
+              </div>
+            )}
 
             <div className="output-specs">
               <div><span className="spec-icon"><Icon name="cube" size={15} /></span><span><strong>Real geometry</strong><small>Not a flat image</small></span></div>

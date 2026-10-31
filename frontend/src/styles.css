@@ -483,3 +483,31 @@ a { color: inherit; text-decoration: none; }
 [data-theme="dark"] .footer-brand i { color: var(--purple); }
 [data-theme="dark"] .footer-separator { color: var(--soft-muted); }
 [data-theme="dark"] .back-top { color: var(--purple); }
+
+/* Backend reconstruction notes and verified mesh statistics. */
+.output-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin: 14px 0 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border, rgba(128, 128, 128, 0.22));
+  border-radius: 10px;
+  color: var(--muted, #85899a);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.output-note > svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+.output-note small {
+  margin-left: auto;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--muted, #85899a);
+}
+@media (max-width: 640px) {
+  .output-note { flex-wrap: wrap; }
+  .output-note small { margin-left: 24px; }
+}

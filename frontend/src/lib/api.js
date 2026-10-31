@@ -71,6 +71,9 @@ export async function generateModel({ image, prompt, inputType, signal }) {
     filename: payload.filename || payload.file_name || `sketch2shape-output.${format}`,
     previewUrl: payload.preview_url ? resolveAssetUrl(payload.preview_url) : null,
     jobId: payload.job_id || payload.id || null,
+    note: payload.note || '',
+    promptUsed: Boolean(payload.prompt_used),
+    mesh: payload.mesh || null,
     isObjectUrl: false,
   };
 }

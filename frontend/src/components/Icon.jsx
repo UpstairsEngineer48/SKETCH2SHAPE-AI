@@ -13,6 +13,7 @@ const paths = {
   rotate: <><path d="M20 7v5h-5"/><path d="M20 12a8 8 0 1 1-2.3-5.7L20 8"/></>,
   check: <path d="m5 12 4 4L19 6"/>,
   alert: <><path d="M12 3 2.8 19h18.4L12 3Z"/><path d="M12 9v4m0 3h.01"/></>,
+  info: <><circle cx="12" cy="12" r="9"/><path d="M12 11v5m0-8h.01"/></>,
   close: <path d="m6 6 12 12M18 6 6 18"/>,
   chevron: <path d="m9 18 6-6-6-6"/>,
   sliders: <><path d="M4 7h9m4 0h3M4 17h3m4 0h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></>,
