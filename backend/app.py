@@ -11,10 +11,13 @@ Every route also works WITHOUT the /api prefix, so it is correct whether or
 not the Vite dev proxy strips "/api".
 
 Pipeline per job:
-  preprocessing -> controlnet (SD1.5) -> background_removal -> instantmesh
+  preprocessing -> controlnet (SD1.5) -> background_removal -> mesh
+  mesh = Hunyuan3D-2mini (local, default) or InstantMesh (HF Space); set S2S_MESH
 """
 
+import json
 import logging
+import os
 import re
 import shutil
 import threading
@@ -39,7 +42,9 @@ app.config["MAX_CONTENT_LENGTH"]=20*1024*1024
 OUTPUTS=Path(__file__).parent/"base"/"outputs"
 OUTPUTS.mkdir(parents=True,exist_ok=True)
 
+MESH=os.getenv("S2S_MESH","hunyuan").lower()   # hunyuan | instantmesh
 TOTAL_STEPS=4
+PHOTO_DIRECT=os.getenv("S2S_PHOTO_DIRECT","1")=="1"   # photos skip the sketch->image model
 JOB_TTL_SECONDS=6*3600
 MIME={".glb":"model/gltf-binary",".obj":"text/plain",".png":"image/png"}
 
@@ -64,14 +69,15 @@ def _friendly(exc):
     low=text.lower()
     if isinstance(exc,ValueError):
         return str(exc)
+    if "hy3dgen" in low and "no module" in low:
+        return "Hunyuan3D is not installed in that Python env. Set S2S_HY_PYTHON to its python.exe (see README)."
     if "quota" in low or "zerogpu" in low:
         return ("The free Hugging Face GPU quota for InstantMesh is used up. "
                 "Set HF_TOKEN (a free access token) before starting the backend, or try again later.")
     if "out of memory" in low:
-        return "The GPU ran out of memory. Start the backend with S2S_LOW_VRAM=1."
+        return "The GPU ran out of memory. Try S2S_LOW_VRAM=1, or lower S2S_HY_OCT (e.g. 192)."
     if any(w in low for w in("connecterror","connection","timeout","name resolution","max retries")):
-        return ("Could not reach Hugging Face. Check your internet connection and that "
-                "the TencentARC/InstantMesh Space is running.")
+        return "Could not reach Hugging Face. Check your internet connection (models download on first use)."
     return text[:400]
 
 
@@ -85,11 +91,14 @@ def _cleanup_old_jobs():
             del JOBS[jid]
 
 
-def _run_job(job_id,sketch_path,prompt):
+def _run_job(job_id,sketch_path,prompt,input_type=""):
     # imported here so Flask starts instantly (rembg/onnxruntime are heavy)
     from base.preprocessing import preprocess_sketch
     from base.background_removal import remove_background
-    from base.instantmesh import run_instantmesh
+    if MESH=="instantmesh":
+        from base.instantmesh import run_instantmesh as make_mesh
+    else:
+        from base.hunyuan import run_hunyuan as make_mesh
 
     job_dir=OUTPUTS/job_id
     _update(job_id,status="queued",label="Waiting for the previous job to finish")
@@ -97,13 +106,24 @@ def _run_job(job_id,sketch_path,prompt):
         started=time.time()
         try:
             _update(job_id,status="running",step=1,label="Reading your sketch")
-            control,kind=preprocess_sketch(sketch_path,job_dir/"control.png")
-            log.info("Job %s | input treated as %s",job_id,kind)
+            # the canvas tab is always a drawing; uploads are classified automatically
+            force="sketch" if input_type=="draw" else None
+            control,kind=preprocess_sketch(sketch_path,job_dir/"control.png",force_kind=force)
+            log.info("Job %s | input_type=%s, treated as %s",job_id,input_type or "?",kind)
+            (job_dir/"job.json").write_text(json.dumps({"prompt":prompt,"kind":kind}),encoding="utf-8")
 
-            loaded=controlnet.status()["loaded"]
-            _update(job_id,step=2,label="Rendering the object from your sketch" if loaded
-                    else "Loading the image model (first run downloads several GB)")
-            rendered=controlnet.sketch_to_image(control,prompt,job_dir/"rendered.png")
+            if kind=="photo" and PHOTO_DIRECT:
+                # a photo is already a real picture of the object: skip the
+                # sketch->image model (it only degrades it) and go to the cutout
+                _update(job_id,step=2,label="Photo detected, using it directly")
+                rendered=job_dir/"rendered.png"
+                from base.preprocessing import load_photo
+                load_photo(sketch_path).save(rendered)   # original resolution, no padding
+            else:
+                loaded=controlnet.status()["loaded"]
+                _update(job_id,step=2,label="Rendering the object from your sketch" if loaded
+                        else "Loading the image model (first run downloads several GB)")
+                rendered=controlnet.sketch_to_image(control,prompt,job_dir/"rendered.png",kind=kind)
             log.info("Job %s | rendered in %.0fs",job_id,time.time()-started)
             _update(job_id,preview_url=f"/files/{job_id}/rendered.png")
 
@@ -111,7 +131,8 @@ def _run_job(job_id,sketch_path,prompt):
             cutout=remove_background(rendered,job_dir/"foreground.png")
 
             _update(job_id,step=4,label="Building the 3D mesh")
-            mesh=run_instantmesh(cutout,job_dir,on_stage=lambda t:_update(job_id,label=t))
+            controlnet.park()   # free the GPU for the mesh model
+            mesh=make_mesh(cutout,job_dir,on_stage=lambda t:_update(job_id,label=t))
 
             _update(job_id,status="done",label="Done",
                     model_url=f"/files/{job_id}/{mesh.name}",
@@ -145,6 +166,7 @@ def generate():
         return error_response("No image file provided.",400)
 
     prompt=(request.form.get("prompt") or "").strip()[:400] or "a clean 3D object"
+    input_type=(request.form.get("input_type") or "").strip().lower()
     job_id=uuid.uuid4().hex[:12]
     job_dir=OUTPUTS/job_id
     job_dir.mkdir(parents=True)
@@ -164,7 +186,7 @@ def generate():
         JOBS[job_id]={"job_id":job_id,"status":"queued","step":0,"total_steps":TOTAL_STEPS,
                       "label":"Queued","created":now,"updated":now}
     log.info("Job %s | prompt=%r",job_id,prompt)
-    threading.Thread(target=_run_job,args=(job_id,sketch_path,prompt),daemon=True).start()
+    threading.Thread(target=_run_job,args=(job_id,sketch_path,prompt,input_type),daemon=True).start()
     return jsonify({"job_id":job_id,"status":"queued"}),202
 
 
