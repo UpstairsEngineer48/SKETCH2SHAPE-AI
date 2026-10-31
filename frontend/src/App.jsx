@@ -337,11 +337,15 @@ export default function App() {
           <span className="brand-mark small-mark"><Icon name="cube" size={16} /></span>
           sketch<span>2</span>shape <i>AI</i>
         </a>
-        <span>Team Tabhai</span>
-        <span className="footer-separator" aria-hidden="true">·</span>
-        <span>Built for creative prototyping</span>
-        <span className="footer-separator" aria-hidden="true">·</span>
-        <span>TechZephyr 4.0 <span className="footer-year">2026</span></span>
+        <p className="footer-credit">
+          Built for creative prototyping
+          <span className="footer-separator">·</span>
+          TeamTabahi
+          <span className="footer-separator">·</span>
+          TechZephyr 4.0
+          <span className="footer-separator">·</span>
+          <span className="footer-year">2026</span>
+        </p>
         <a href="#workspace" className="back-top">Back to workspace ↑</a>
       </footer>
     </div>
