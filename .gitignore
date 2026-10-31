@@ -1,5 +1,32 @@
-.junie
-.venv
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Virtual environments
+myenv/
+.venv/
+venv/
+env/
+
+# Environment variables
 .env
-.idea
+
+# VS Code settings
 .vscode/
+
+# PyCharm
+.idea/
+
+# Windows
+Thumbs.db
+
+# Logs
+*.log
+daily_update.log
+
+# Frontend build artifacts / dependencies
+dist/
+node_modules/
+
+# Misc
+*.bak
