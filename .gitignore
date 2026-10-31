@@ -1,32 +1,18 @@
-# Python cache
 __pycache__/
 *.py[cod]
-
-# Virtual environments
-myenv/
 .venv/
 venv/
-env/
-
-# Environment variables
+myenv/
 .env
-
-# VS Code settings
-.vscode/
-
-# PyCharm
-.idea/
-
-# Windows
-Thumbs.db
-
-# Logs
-*.log
-daily_update.log
-
-# Frontend build artifacts / dependencies
-dist/
+.env.*.local
 node_modules/
+dist/
+backend/models/
+backend/outputs/
+backend_legacy/__pycache__/
+.vscode/
+.idea/
+Thumbs.db
+*.log
 
-# Misc
-*.bak
+frontend/.vite/

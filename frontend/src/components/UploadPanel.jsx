@@ -4,7 +4,7 @@ import Icon from './Icon.jsx';
 const ACCEPTED_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
 const MAX_BYTES = 15 * 1024 * 1024;
 
-export default function UploadPanel({ file, onFileChange }) {
+export default function UploadPanel({ file, onFileChange, inputType = 'auto', onInputTypeChange }) {
   const inputRef = useRef(null);
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState('');
@@ -47,6 +47,14 @@ export default function UploadPanel({ file, onFileChange }) {
 
   return (
     <div className="upload-module">
+      <label className="upload-type-select">
+        <span>Image type</span>
+        <select value={inputType} onChange={(event) => onInputTypeChange?.(event.target.value)}>
+          <option value="auto">Auto detect</option>
+          <option value="sketch">Sketch / line drawing</option>
+          <option value="photo">Photo / object image (rembg)</option>
+        </select>
+      </label>
       {file ? (
         <div className="uploaded-file-card">
           <div className="uploaded-preview">

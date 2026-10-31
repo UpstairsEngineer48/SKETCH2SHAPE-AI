@@ -3,7 +3,7 @@ import Icon from './components/Icon.jsx';
 import SketchCanvas from './components/SketchCanvas.jsx';
 import UploadPanel from './components/UploadPanel.jsx';
 import ModelViewer from './components/ModelViewer.jsx';
-import { checkApiHealth, generateModel } from './lib/api.js';
+import { checkApiHealth, runConditioner } from './lib/api.js';
 
 const PROMPT_SUGGESTIONS = ['Product design', 'Matte ceramic', 'Soft rounded edges', 'Studio lighting'];
 
@@ -36,14 +36,16 @@ export default function App() {
   const sketchRef = useRef(null);
   const [theme, setTheme] = useState(getInitialTheme);
   const [inputMode, setInputMode] = useState('draw');
+  const [uploadInputType, setUploadInputType] = useState('auto');
   const [uploadedFile, setUploadedFile] = useState(null);
   const [canvasHasContent, setCanvasHasContent] = useState(false);
   const [prompt, setPrompt] = useState('');
   const [generationState, setGenerationState] = useState('idle');
   const [output, setOutput] = useState(null);
+  const [preprocessingResult, setPreprocessingResult] = useState(null);
   const [errorMessage, setErrorMessage] = useState('');
   const [apiState, setApiState] = useState('checking');
-  const [apiDetail, setApiDetail] = useState('Checking the generation API');
+  const [apiDetail, setApiDetail] = useState('Checking the local backend API');
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -55,12 +57,12 @@ export default function App() {
     checkApiHealth()
       .then((health) => {
         if (!active) return;
-        if (health?.model_loaded === false) {
+        if (health?.conditioner_model_available === false) {
           setApiState('warming');
-          setApiDetail('API online · model weights are not loaded yet');
+          setApiDetail('Backend online · DINOv2 ONNX file is missing; download it from the backend folder');
         } else {
           setApiState('online');
-          setApiDetail('Generation API is reachable');
+          setApiDetail('Backend connected · ONNX Runtime CPU');
         }
       })
       .catch(() => {
@@ -104,24 +106,25 @@ export default function App() {
       }
 
       setGenerationState('generating');
-      setApiDetail('Submitting sketch to the generation API');
+      setApiDetail('Preprocessing image and running DINOv2 on CPU');
       const controller = new AbortController();
-      const result = await generateModel({
+      const result = await runConditioner({
         image: imageFile,
         prompt,
-        inputType: inputMode,
+        inputType: inputMode === 'draw' ? 'sketch' : uploadInputType,
         signal: controller.signal,
       });
 
-      setOutput(result);
+      setPreprocessingResult(result);
+      setOutput(null);
       setGenerationState('complete');
       setApiState('online');
-      setApiDetail('Generation API is reachable');
+      setApiDetail('Backend connected · image conditioning completed');
     } catch (error) {
       console.error(error);
       setGenerationState('error');
-      setErrorMessage(error.message || 'Something went wrong while generating the model.');
-      setApiDetail('The generation request did not complete');
+      setErrorMessage(error.message || 'Something went wrong while preprocessing or conditioning the image.');
+      setApiDetail('The preprocessing / conditioning request did not complete');
     }
   };
 
@@ -147,6 +150,7 @@ export default function App() {
 
   const resetOutput = () => {
     setOutput(null);
+    setPreprocessingResult(null);
     setGenerationState('idle');
     setErrorMessage('');
   };
@@ -166,7 +170,7 @@ export default function App() {
         <div className="topbar-right">
           <div className={`api-status api-${apiState}`} title={apiDetail}>
             <span className="api-status-dot" />
-            <span>{apiState === 'checking' ? 'Checking API' : apiState === 'online' ? 'API connected' : apiState === 'warming' ? 'model loading' : 'API offline'}</span>
+            <span>{apiState === 'checking' ? 'Checking API' : apiState === 'online' ? 'API connected' : apiState === 'warming' ? 'DINOv2 missing' : 'API offline'}</span>
           </div>
           <button
             type="button"
@@ -186,11 +190,11 @@ export default function App() {
           <div className="intro-copy">
             <div className="eyebrow"><span className="eyebrow-line" /> GENERATIVE 3D WORKSPACE</div>
             <h1>From a sketch<br /><span>to a shape.</span></h1>
-            <p>Bring your rough ideas to life. Draw or upload a concept, add a little direction, and turn it into an inspectable 3D asset.</p>
+            <p>Draw or upload a concept, isolate the subject, inspect the normalized image and verify CPU-based DINOv2 conditioning before the 3D reconstruction stage.</p>
           </div>
           <div className="intro-aside">
             <div className="aside-orbit"><span className="orbit-core" /><span className="orbit-ring ring-one" /><span className="orbit-ring ring-two" /><span className="orbit-spark spark-one" /><span className="orbit-spark spark-two" /></div>
-            <div className="aside-copy"><strong>One view is enough to begin.</strong><span>AI-assisted geometry reconstruction<br />with export-ready output.</span></div>
+            <div className="aside-copy"><strong>Build the pipeline one stage at a time.</strong><span>Local preprocessing and CPU ONNX conditioning.<br />Mesh generation is the next integration stage.</span></div>
           </div>
         </section>
 
@@ -237,13 +241,13 @@ export default function App() {
             {inputMode === 'draw' ? (
               <SketchCanvas ref={sketchRef} onContentChange={setCanvasHasContent} />
             ) : (
-              <UploadPanel file={uploadedFile} onFileChange={setUploadedFile} />
+              <UploadPanel file={uploadedFile} onFileChange={setUploadedFile} inputType={uploadInputType} onInputTypeChange={setUploadInputType} />
             )}
 
             <div className="prompt-divider"><span /> <small>OPTIONAL GUIDANCE</small> <span /></div>
             <div className="prompt-heading">
               <label htmlFor="object-prompt">Describe your object</label>
-              <span>OPTIONAL</span>
+              <span>FUTURE GENERATION INPUT</span>
             </div>
             <textarea
               id="object-prompt"
@@ -252,7 +256,7 @@ export default function App() {
               rows={3}
               value={prompt}
               onChange={(event) => setPrompt(event.target.value)}
-              placeholder="e.g. A compact desk lamp with a brushed aluminium finish, warm light and smooth rounded edges..."
+              placeholder="e.g. A compact desk lamp with a brushed aluminium finish, warm light and smooth rounded edges... (not used by the current DINOv2 stage)"
             />
             <div className="prompt-footer">
               <div className="prompt-suggestions">
@@ -274,45 +278,81 @@ export default function App() {
                 onClick={handleGenerate}
                 disabled={!canGenerate || generationState === 'generating'}
               >
-                {generationState === 'generating' ? <><span className="button-spinner" /> Reconstructing model...</> : <><Icon name="sparkles" size={18} /> Generate 3D model <Icon name="chevron" size={17} /></>}
+                {generationState === 'generating' ? <><span className="button-spinner" /> Processing image...</> : <><Icon name="sparkles" size={18} /> Run image conditioning <Icon name="chevron" size={17} /></>}
               </button>
-              <div className="generate-caption"><Icon name="file" size={13} /> Your sketch stays the source of truth <span>·</span> Prompt is optional</div>
+              <div className="generate-caption"><Icon name="file" size={13} /> Background removal + DINOv2 CPU check <span>·</span> No mesh is generated yet</div>
             </div>
           </section>
 
           <section className="panel output-panel" aria-labelledby="output-heading">
             <div className="panel-heading output-heading">
               <div>
-                <div className="section-kicker"><span>02</span> RECONSTRUCTION</div>
-                <h2 id="output-heading">3D workspace</h2>
-                <p>Inspect your model from every angle.</p>
+                <div className="section-kicker"><span>02</span> CONDITIONING</div>
+                <h2 id="output-heading">Pipeline diagnostics</h2>
+                <p>Inspect the normalized input and conditioner result.</p>
               </div>
-              <div className={`output-status ${output ? 'output-ready' : ''}`}><span /> {output ? 'READY TO EXPORT' : 'AWAITING INPUT'}</div>
+              <div className={`output-status ${preprocessingResult ? 'output-ready' : ''}`}><span /> {preprocessingResult ? 'CONDITIONER PASSED' : 'AWAITING INPUT'}</div>
             </div>
 
             <ModelViewer modelUrl={output?.modelUrl} format={output?.format} isGenerating={generationState === 'generating'} />
+
+            {preprocessingResult && (
+              <div className="preprocess-results" aria-live="polite">
+                <div className="preprocess-results-heading">
+                  <strong>Preprocessing artifacts</strong>
+                  <span>{preprocessingResult.preprocessing?.method || 'Image processed'}</span>
+                </div>
+                <div className="preprocess-image-grid">
+                  <figure>
+                    <img src={preprocessingResult.artifacts?.model_input} alt="Normalized RGB image passed to DINOv2" />
+                    <figcaption>MODEL INPUT · RGB</figcaption>
+                  </figure>
+                  <figure>
+                    <img src={preprocessingResult.artifacts?.foreground} alt="Extracted foreground subject with transparency" />
+                    <figcaption>FOREGROUND</figcaption>
+                  </figure>
+                  <figure>
+                    <img src={preprocessingResult.artifacts?.mask} alt="Foreground alpha mask" />
+                    <figcaption>ALPHA MASK</figcaption>
+                  </figure>
+                  <figure>
+                    <img src={preprocessingResult.artifacts?.canny_edges} alt="Canny edge diagnostic map" />
+                    <figcaption>CANNY · DIAGNOSTIC</figcaption>
+                  </figure>
+                </div>
+                <div className="conditioner-metrics">
+                  <div><span>Embedding</span><strong>{preprocessingResult.embedding_shape?.join(' × ') || 'Completed'}</strong></div>
+                  <div><span>Data type</span><strong>{preprocessingResult.embedding_dtype || '—'}</strong></div>
+                  <div><span>Inference</span><strong>{preprocessingResult.inference_seconds ?? '—'} s</strong></div>
+                  <div><span>Background</span><strong>{preprocessingResult.preprocessing?.background_removed ? 'Removed / isolated' : 'Not removed'}</strong></div>
+                </div>
+                {preprocessingResult.prompt_note && <p className="prompt-stage-note">{preprocessingResult.prompt_note}</p>}
+                <p className="edge-stage-note">Canny is displayed for quality inspection only. DINOv2 receives the normalized RGB image, not the edge map.</p>
+              </div>
+            )}
 
             <div className="output-toolbar">
               <div className="output-file-info">
                 <span className="file-icon"><Icon name="cube" size={17} /></span>
                 <div>
-                  <strong>{output?.filename || 'No model generated yet'}</strong>
-                  <span>{output ? `3D asset · ${formatLabel(output.format)} format` : 'Your export will be listed here'}</span>
+                  <strong>{preprocessingResult ? 'DINOv2 conditioning complete' : 'No 3D mesh generated yet'}</strong>
+                  <span>{preprocessingResult ? `Embedding ${preprocessingResult.embedding_shape?.join(' × ') || 'ready'} · CPU ONNX` : 'Mesh generation is the next backend stage'}</span>
                 </div>
               </div>
               <div className="output-actions">
                 {output && <button className="icon-button rerun-button" onClick={resetOutput} title="Clear current model" aria-label="Clear current model"><Icon name="rotate" size={16} /></button>}
                 <button className="download-button" type="button" onClick={handleDownload} disabled={!output}>
-                  <Icon name="download" size={16} /> Export {output ? formatLabel(output.format) : '3D'}
+                  <Icon name="download" size={16} /> GLB export pending
                 </button>
               </div>
             </div>
 
             <div className="output-specs">
-              <div><span className="spec-icon"><Icon name="cube" size={15} /></span><span><strong>Real geometry</strong><small>Not a flat image</small></span></div>
-              <div><span className="spec-icon"><Icon name="sparkles" size={15} /></span><span><strong>Surface detail</strong><small>Materials & textures</small></span></div>
-              <div><span className="spec-icon"><Icon name="download" size={15} /></span><span><strong>Exportable</strong><small>GLB / OBJ supported</small></span></div>
+              <div><span className="spec-icon"><Icon name="image" size={15} /></span><span><strong>Input normalized</strong><small>Centered RGB image</small></span></div>
+              <div><span className="spec-icon"><Icon name="scan" size={15} /></span><span><strong>Edges inspected</strong><small>Canny QC preview</small></span></div>
+              <div><span className="spec-icon"><Icon name="cpu" size={15} /></span><span><strong>CPU inference</strong><small>DINOv2 embeddings</small></span></div>
             </div>
+            {preprocessingResult && <div className="job-reference">REQUEST ID <code>{preprocessingResult.request_id}</code></div>}
             {output?.jobId && <div className="job-reference">JOB ID <code>{output.jobId}</code></div>}
           </section>
         </section>
@@ -323,11 +363,11 @@ export default function App() {
             <h2>A small sketch. <span>A new dimension.</span></h2>
           </div>
           <div className="workflow-steps">
-            <div className="workflow-step"><span className="workflow-number">01</span><div><strong>Sketch conditioning</strong><p>Draw or upload a source image. Add optional details to guide the result.</p></div><Icon name="pen" size={19} /></div>
+            <div className="workflow-step"><span className="workflow-number">01</span><div><strong>Sketch conditioning</strong><p>Draw or upload a source image. Optional text is retained for the later generation stage.</p></div><Icon name="pen" size={19} /></div>
             <div className="workflow-connector" />
-            <div className="workflow-step"><span className="workflow-number">02</span><div><strong>Image-to-3D</strong><p>The backend interprets the concept and reconstructs plausible geometry.</p></div><Icon name="cube" size={19} /></div>
+            <div className="workflow-step"><span className="workflow-number">02</span><div><strong>DINOv2 conditioning</strong><p>The current backend produces image embeddings on CPU. Full shape generation is not wired yet.</p></div><Icon name="cpu" size={19} /></div>
             <div className="workflow-connector" />
-            <div className="workflow-step"><span className="workflow-number">03</span><div><strong>Inspect & export</strong><p>Orbit around the output, then save a usable GLB or OBJ asset.</p></div><Icon name="download" size={19} /></div>
+            <div className="workflow-step"><span className="workflow-number">03</span><div><strong>Mesh & export · next</strong><p>DiT sampling, ShapeVAE decoding, mesh extraction and GLB export remain to be implemented.</p></div><Icon name="download" size={19} /></div>
           </div>
         </section>
       </main>

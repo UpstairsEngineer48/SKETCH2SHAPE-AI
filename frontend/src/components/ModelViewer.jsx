@@ -185,15 +185,15 @@ export default function ModelViewer({ modelUrl, format, isGenerating }) {
       {!modelUrl && !isGenerating && (
         <div className="viewer-empty-state">
           <div className="empty-orbit"><span /><span /><span /></div>
-          <strong>Your 3D model will appear here</strong>
-          <p>Draw or upload a sketch, then start the reconstruction.</p>
+          <strong>3D mesh generation is the next stage</strong>
+          <p>The connected backend currently verifies preprocessing and DINOv2 conditioning. It does not return a mesh yet.</p>
         </div>
       )}
       {isGenerating && (
         <div className="viewer-generating-state">
           <div className="generation-spinner"><span /></div>
-          <strong>Building your 3D asset</strong>
-          <p>Reading structure · Reconstructing geometry · Applying appearance</p>
+          <strong>Conditioning your input image</strong>
+          <p>Foreground isolation · Image normalization · DINOv2 CPU inference</p>
         </div>
       )}
       {loadError && (
