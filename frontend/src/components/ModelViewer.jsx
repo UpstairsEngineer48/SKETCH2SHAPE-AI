@@ -184,7 +184,6 @@ export default function ModelViewer({ modelUrl, format, isGenerating, statusText
       <div className="viewer-canvas" ref={mountRef} />
       {!modelUrl && !isGenerating && (
         <div className="viewer-empty-state">
-          <div className="empty-orbit"><span /><span /><span /></div>
           <strong>Your 3D model will appear here</strong>
           <p>Draw or upload a sketch, then start the reconstruction.</p>
         </div>

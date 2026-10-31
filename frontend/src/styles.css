@@ -208,8 +208,8 @@ a { color: inherit; text-decoration: none; }
 .subtle-label span { color: #4b5268; padding: 0 2px; }
 .viewer-overlay-bottom { bottom: 13px; color: #777f98; font: 8px var(--mono); letter-spacing: .015em; }
 .viewer-overlay-bottom span { display: inline-flex; align-items: center; gap: 5px; }
-.viewer-empty-state { position: absolute; top: 49%; left: 50%; transform: translate(-50%,-50%); display: flex; align-items: center; flex-direction: column; text-align: center; pointer-events: none; width: 78%; }
-.viewer-empty-state strong { margin-top: 18px; color: #d3d4e1; font: 650 13px var(--display); letter-spacing: -.01em; }
+.viewer-empty-state { position: absolute; top: 78%; left: 50%; transform: translateX(-50%); display: flex; align-items: center; flex-direction: column; text-align: center; pointer-events: none; width: 78%; }
+.viewer-empty-state strong { margin-top: 0; color: #d3d4e1; font: 650 13px var(--display); letter-spacing: -.01em; }
 .viewer-empty-state p { margin: 7px 0 0; color: #737b94; font-size: 10px; line-height: 1.5; }
 .empty-orbit { width: 83px; height: 83px; border: 1px solid rgba(157,146,255,.25); border-radius: 50%; display: grid; place-items: center; position: relative; }
 .empty-orbit::before, .empty-orbit::after { content: ''; position: absolute; border: 1px solid rgba(94,201,180,.22); border-radius: 50%; inset: 11px -10px; transform: rotate(36deg); }

@@ -332,20 +332,6 @@ export default function App() {
             {output?.jobId && <div className="job-reference">JOB ID <code>{output.jobId}</code></div>}
           </section>
         </section>
-
-        <section id="workflow" className="workflow-section">
-          <div className="workflow-title">
-            <span className="eyebrow"><span className="eyebrow-line" /> THE WORKFLOW</span>
-            <h2>A small sketch. <span>A new dimension.</span></h2>
-          </div>
-          <div className="workflow-steps">
-            <div className="workflow-step"><span className="workflow-number">01</span><div><strong>Sketch conditioning</strong><p>Draw or upload a source image. Add optional details to guide the result.</p></div><Icon name="pen" size={19} /></div>
-            <div className="workflow-connector" />
-            <div className="workflow-step"><span className="workflow-number">02</span><div><strong>Image-to-3D</strong><p>The backend interprets the concept and reconstructs plausible geometry.</p></div><Icon name="cube" size={19} /></div>
-            <div className="workflow-connector" />
-            <div className="workflow-step"><span className="workflow-number">03</span><div><strong>Inspect & export</strong><p>Orbit around the output, then save a usable GLB or OBJ asset.</p></div><Icon name="download" size={19} /></div>
-          </div>
-        </section>
       </main>
 
       <footer className="footer">
