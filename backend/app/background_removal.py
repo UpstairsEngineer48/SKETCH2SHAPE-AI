@@ -1,3 +1,4 @@
+# removes background from image
 from rembg import remove
 from PIL import Image
 from pathlib import Path
