@@ -1,0 +1,22 @@
+# Core
+flask>=3.0
+flask-cors>=4.0
+
+# Image processing
+Pillow>=10.0
+numpy
+opencv-python>=4.9
+rembg[cpu]>=2.0
+
+# Diffusers + ControlNet
+# IMPORTANT: install the CUDA build of torch first (see README),
+# otherwise pip installs the CPU build and generation is very slow.
+torch>=2.2
+diffusers>=0.27
+transformers>=4.40
+accelerate>=0.29
+peft>=0.10
+safetensors
+
+# InstantMesh via the HuggingFace Space API
+gradio_client>=0.16
