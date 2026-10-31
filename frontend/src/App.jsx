@@ -166,7 +166,7 @@ export default function App() {
         <div className="topbar-right">
           <div className={`api-status api-${apiState}`} title={apiDetail}>
             <span className="api-status-dot" />
-            <span>{apiState === 'checking' ? 'Checking API' : apiState === 'online' ? 'API connected' : apiState === 'warming' ? 'Model loading' : 'API offline'}</span>
+            <span>{apiState === 'checking' ? 'Checking API' : apiState === 'online' ? 'API connected' : apiState === 'warming' ? 'model loading' : 'API offline'}</span>
           </div>
           <button
             type="button"
