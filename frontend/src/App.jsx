@@ -193,7 +193,7 @@ export default function App() {
           >
             {theme === 'dark' ? <SunIcon /> : <MoonIcon />}
           </button>
-          <span className="version-tag">BETA <span>·</span> 0.1</span>
+          <span className="version-tag">V<span>·</span>1.0</span>
         </div>
       </header>
 
