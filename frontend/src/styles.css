@@ -200,18 +200,63 @@ a { color: inherit; text-decoration: none; }
 .viewer-shell { position: relative; height: 492px; margin-top: 21px; border-radius: 10px; border: 1px solid #252a3d; background: #111522; overflow: hidden; }
 .viewer-canvas { position: absolute; inset: 0; }
 .viewer-canvas canvas { display: block; width: 100%; height: 100%; }
-.viewer-overlay-top, .viewer-overlay-bottom { position: absolute; left: 15px; right: 15px; display: flex; justify-content: space-between; align-items: center; pointer-events: none; }
-.viewer-overlay-top { top: 14px; }
+.viewer-shell:fullscreen,
+.viewer-shell:-webkit-full-screen,
+.viewer-shell.is-fullscreen {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  margin-top: 0;
+  border-radius: 0;
+  border: 0;
+  z-index: 9999;
+}
+.viewer-overlay-top, .viewer-overlay-bottom { position: absolute; left: 15px; right: 15px; display: flex; justify-content: space-between; align-items: center; pointer-events: none; z-index: 2; }
+.viewer-overlay-top { top: 14px; gap: 10px; }
+.viewer-shell:fullscreen .viewer-overlay-top,
+.viewer-shell:-webkit-full-screen .viewer-overlay-top,
+.viewer-shell.is-fullscreen .viewer-overlay-top { top: 20px; left: 22px; right: 22px; }
+.viewer-shell:fullscreen .viewer-overlay-bottom,
+.viewer-shell:-webkit-full-screen .viewer-overlay-bottom,
+.viewer-shell.is-fullscreen .viewer-overlay-bottom { bottom: 20px; left: 22px; right: 22px; }
+.viewer-top-actions { display: flex; align-items: center; gap: 10px; pointer-events: auto; }
+.viewer-fullscreen-btn {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 7px;
+  border: 1px solid rgba(157, 145, 255, 0.26);
+  background: rgba(23, 27, 43, 0.78);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: #d3d4e1;
+  font: 500 8px var(--mono);
+  letter-spacing: .09em;
+  transition: background .16s ease, border-color .16s ease, color .16s ease, transform .16s ease, box-shadow .16s ease;
+}
+.viewer-fullscreen-btn:hover {
+  background: rgba(112, 100, 220, 0.28);
+  border-color: rgba(157, 145, 255, 0.58);
+  color: #ffffff;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.32);
+}
+.viewer-fullscreen-btn:active {
+  transform: translateY(0);
+}
 .scene-label { color: #a8a7c5; font: 500 8px var(--mono); letter-spacing: .1em; display: flex; align-items: center; gap: 7px; }
 .scene-label-dot { width: 5px; height: 5px; border-radius: 50%; background: #61cdb5; box-shadow: 0 0 9px rgba(97,205,181,.7); }
 .subtle-label { color: #626a83; }
 .subtle-label span { color: #4b5268; padding: 0 2px; }
 .viewer-overlay-bottom { bottom: 13px; color: #777f98; font: 8px var(--mono); letter-spacing: .015em; }
 .viewer-overlay-bottom span { display: inline-flex; align-items: center; gap: 5px; }
-.viewer-empty-state { position: absolute; top: 78%; left: 50%; transform: translateX(-50%); display: flex; align-items: center; flex-direction: column; text-align: center; pointer-events: none; width: 78%; }
+.viewer-empty-state { position: absolute; inset: 0; display: flex; align-items: center; justify-content: flex-end; flex-direction: column; text-align: center; pointer-events: none; padding: 0 11% clamp(56px, 15.5%, 160px); }
 .viewer-empty-state strong { margin-top: 0; color: #d3d4e1; font: 650 13px var(--display); letter-spacing: -.01em; }
 .viewer-empty-state p { margin: 7px 0 0; color: #737b94; font-size: 10px; line-height: 1.5; }
-.empty-orbit { width: 83px; height: 83px; border: 1px solid rgba(157,146,255,.25); border-radius: 50%; display: grid; place-items: center; position: relative; }
+.empty-orbit { position: absolute; top: 45%; left: 50%; transform: translate(-50%, -50%); width: 83px; height: 83px; border: 1px solid rgba(157,146,255,.25); border-radius: 50%; display: grid; place-items: center; }
 .empty-orbit::before, .empty-orbit::after { content: ''; position: absolute; border: 1px solid rgba(94,201,180,.22); border-radius: 50%; inset: 11px -10px; transform: rotate(36deg); }
 .empty-orbit::after { inset: -9px 17px; transform: rotate(-39deg); }
 .empty-orbit span { position: absolute; width: 7px; height: 7px; border-radius: 2px; background: #8d81e9; box-shadow: 0 0 13px rgba(141,129,233,.7); transform: rotate(45deg); }
@@ -339,6 +384,8 @@ a { color: inherit; text-decoration: none; }
   .viewer-shell { height: 360px; margin-top: 17px; }
   .viewer-overlay-top, .viewer-overlay-bottom { left: 10px; right: 10px; }
   .scene-label { font-size: 7px; }
+  .viewer-top-actions .subtle-label { display: none; }
+  .viewer-fullscreen-btn { padding: 5px 8px; font-size: 7px; }
   .viewer-overlay-bottom { font-size: 7px; }
   .output-toolbar { align-items: flex-start; flex-direction: column; }
   .output-actions { width: 100%; justify-content: flex-end; }

@@ -44,44 +44,32 @@ export default function App() {
   const [errorMessage, setErrorMessage] = useState('');
   const [apiState, setApiState] = useState('checking');
   const [apiDetail, setApiDetail] = useState('Checking the generation API');
-  const [progress,setProgress]=useState(null);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     try { localStorage.setItem('theme', theme); } catch {}
   }, [theme]);
 
-  useEffect(()=>{
-    let active=true;
-    let timer=null;
-    // Keep checking until the model is loaded: first start can take minutes.
-    const check=()=>{
-      checkApiHealth()
-        .then((health)=>{
-          if(!active)return;
-          if(health?.error){
-            setApiState('offline');
-            setApiDetail(`Model failed to load: ${health.error}`);
-          }else if(health?.model_loaded===false){
-            setApiState('warming');
-            setApiDetail('API online · model weights are loading (first start downloads several GB)');
-          }else{
-            setApiState('online');
-            setApiDetail(health?.device==='cpu'?'Connected · running on CPU, expect slow generation':'Generation API is reachable');
-            return;
-          }
-          timer=setTimeout(check,4000);
-        })
-        .catch(()=>{
-          if(!active)return;
-          setApiState('offline');
-          setApiDetail('Could not reach the API at the configured address');
-          timer=setTimeout(check,4000);
-        });
-    };
-    check();
-    return ()=>{active=false;clearTimeout(timer);};
-  },[]);
+  useEffect(() => {
+    let active = true;
+    checkApiHealth()
+      .then((health) => {
+        if (!active) return;
+        if (health?.model_loaded === false) {
+          setApiState('warming');
+          setApiDetail('API online · model weights are not loaded yet');
+        } else {
+          setApiState('online');
+          setApiDetail('Generation API is reachable');
+        }
+      })
+      .catch(() => {
+        if (!active) return;
+        setApiState('offline');
+        setApiDetail('Could not reach the API at the configured address');
+      });
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -116,7 +104,6 @@ export default function App() {
       }
 
       setGenerationState('generating');
-      setProgress(null);
       setApiDetail('Submitting sketch to the generation API');
       const controller = new AbortController();
       const result = await generateModel({
@@ -124,18 +111,15 @@ export default function App() {
         prompt,
         inputType: inputMode,
         signal: controller.signal,
-        onProgress:(job)=>{setProgress(job);setApiDetail(job.label||'Working...');},
       });
 
       setOutput(result);
-      setProgress(null);
       setGenerationState('complete');
       setApiState('online');
       setApiDetail('Generation API is reachable');
     } catch (error) {
       console.error(error);
       setGenerationState('error');
-      setProgress(null);
       setErrorMessage(error.message || 'Something went wrong while generating the model.');
       setApiDetail('The generation request did not complete');
     }
@@ -182,7 +166,7 @@ export default function App() {
         <div className="topbar-right">
           <div className={`api-status api-${apiState}`} title={apiDetail}>
             <span className="api-status-dot" />
-            <span>{apiState === 'checking' ? 'Checking API' : apiState === 'online' ? 'API connected' : apiState === 'warming' ? 'Model loading' : 'API offline'}</span>
+            <span>{apiState === 'checking' ? 'Checking API' : apiState === 'online' ? 'API connected' : apiState === 'warming' ? 'model loading' : 'API offline'}</span>
           </div>
           <button
             type="button"
@@ -193,7 +177,7 @@ export default function App() {
           >
             {theme === 'dark' ? <SunIcon /> : <MoonIcon />}
           </button>
-          <span className="version-tag">V<span>·</span>1.0</span>
+          <span className="version-tag">V 1.0</span>
         </div>
       </header>
 
@@ -306,7 +290,7 @@ export default function App() {
               <div className={`output-status ${output ? 'output-ready' : ''}`}><span /> {output ? 'READY TO EXPORT' : 'AWAITING INPUT'}</div>
             </div>
 
-            <ModelViewer modelUrl={output?.modelUrl} format={output?.format} isGenerating={generationState === 'generating'} statusText={progress?`${progress.label} · step ${progress.step}/${progress.total_steps} · ${progress.elapsed}s`:undefined} />
+            <ModelViewer modelUrl={output?.modelUrl} format={output?.format} isGenerating={generationState === 'generating'} />
 
             <div className="output-toolbar">
               <div className="output-file-info">
