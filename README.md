@@ -20,7 +20,7 @@ geometry, finite vertices, real 3D volume). The result page shows what was found
 ```
 cd ./backend
 .venv\Scripts\activate
-$env:HF_TOKEN="hf_xxxxxxxx"        # your own free Hugging Face token
+$env:HF_TOKEN="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"        # your own free Hugging Face token
 $env:S2S_HY_PYTHON="C:\Users\PRANJAL\Hunyuan3D-2\.venv\Scripts\python.exe"
 $env:S2S_IM_DIR="C:\Users\PRANJAL\InstantMesh"
 $env:S2S_IM_PYTHON="C:\Users\PRANJAL\InstantMesh\.venv\Scripts\python.exe"
