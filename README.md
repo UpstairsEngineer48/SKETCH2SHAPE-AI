@@ -7,23 +7,27 @@ Sketch -> ControlNet render -> background removal -> 3D mesh (Hunyuan3D or Insta
 **Backend** (terminal 1)
 
 ```
-cd backend
-python -m venv .venv
-.venv\Scripts\activate            # macOS/Linux: source .venv/bin/activate
+cd ./backend
+.venv\Scripts\activate
+$env:HF_TOKEN="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"  #example hugging face token
+$env:S2S_HY_PYTHON="C:\Users\PRANJAL\Hunyuan3D-2\.venv\Scripts\python.exe"
+$env:S2S_IM_DIR="C:\Users\PRANJAL\InstantMesh"
+$env:S2S_IM_PYTHON="C:\Users\PRANJAL\InstantMesh\.venv\Scripts\python.exe"
+$env:S2S_IM_CONFIG="configs/lowvram/instant-mesh-base.yaml"
+$env:S2S_LOW_VRAM="1"
+$env:PYTORCH_CUDA_ALLOC_CONF="max_split_size_mb:128"
+$env:S2S_MESH="hunyuan,instantmesh_local,instantmesh_api"
 
 # NVIDIA GPU? install the CUDA torch FIRST (pick your CUDA version on pytorch.org):
 pip install torch --index-url https://download.pytorch.org/whl/cu121
-
 pip install -r ../requirements.txt
-
-set HF_TOKEN=hf_xxxxxxxx          # PowerShell: $env:HF_TOKEN="hf_xxx"  |  bash: export HF_TOKEN=hf_xxx
 python app.py
 ```
 
 **Frontend** (terminal 2)
 
 ```
-cd frontend
+cd ./frontend
 npm install
 npm run dev
 ```
