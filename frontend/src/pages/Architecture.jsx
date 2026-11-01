@@ -1,6 +1,83 @@
 import React from 'react';
 import Icon from '../components/Icon.jsx';
 
+// Real outputs from public/examples/car/ (same files the landing page shows).
+const BASE = import.meta.env.BASE_URL || '/';
+const ex = (file) => `${BASE}examples/car/${file}`.replace(/\/{2,}/g, '/');
+const hideOnError = (e) => { e.currentTarget.style.display = 'none'; };
+
+// Small preview of what a stage produces. The mesh stage has no image, so it
+// gets a dark viewer-style tile with the cutout faded behind a cube icon.
+function StageThumb({ out }) {
+  if (!out.endsWith('.png')) {
+    return (
+      <span className="stage-thumb mesh">
+        <img src={ex('foreground.png')} alt="" loading="lazy" onError={hideOnError} />
+        <Icon name="cube" size={22} />
+      </span>
+    );
+  }
+  const kind = out.replace('.png', '');
+  const tone = kind === 'control' ? 'dark' : kind === 'foreground' ? 'checker' : '';
+  return (
+    <span className={`stage-thumb ${tone}`}>
+      <img src={ex(out)} alt="" loading="lazy" onError={hideOnError} />
+    </span>
+  );
+}
+
+// One run, end to end. Dashed lines animate in the direction of travel.
+function FlowDiagram() {
+  const Node = ({ x, title, sub, lines }) => (
+    <g>
+      <rect className="fd-box" x={x} y={70} width={200} height={150} rx={14} />
+      <text className="fd-title" x={x + 20} y={104}>{title}</text>
+      <text className="fd-sub" x={x + 20} y={124}>{sub}</text>
+      {lines.map((l, i) => <text key={l} className="fd-item" x={x + 20} y={152 + i * 18}>{l}</text>)}
+    </g>
+  );
+  return (
+    <div className="panel fd-panel">
+      <div className="fd-head"><span>REQUEST FLOW</span><small>one run, end to end</small></div>
+      <div className="table-scroll">
+        <svg className="fd-svg" viewBox="0 52 960 238" role="img" aria-label="The browser submits a sketch to the Flask API, receives a job id, then polls for status while the API runs the model workers and serves the finished files back.">
+          <defs>
+            <marker id="fd-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M1 1 L9 5 L1 9 z" className="fd-tip" />
+            </marker>
+            <marker id="fd-arrow-back" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M1 1 L9 5 L1 9 z" className="fd-tip back" />
+            </marker>
+          </defs>
+
+          <Node x={10} title="Browser" sub="React · three.js" lines={['sketch canvas / upload', 'live stage previews', 'GLB viewer + export']} />
+          <Node x={380} title="Flask API" sub="127.0.0.1:8000 · /api" lines={['validate upload', 'job thread + GPU lock', 'serves generated files']} />
+          <Node x={750} title="Model workers" sub="in-process + isolated" lines={['preprocess + ControlNet', 'cutout (rembg)', 'image → 3D mesh']} />
+
+          {/* browser <-> API */}
+          <text className="fd-label" x={295} y={102} textAnchor="middle">POST /generate</text>
+          <path className="fd-line" d="M214 110 H374" markerEnd="url(#fd-arrow)" />
+          <text className="fd-label back" x={295} y={142} textAnchor="middle">202 · job_id</text>
+          <path className="fd-line back" d="M376 150 H216" markerEnd="url(#fd-arrow-back)" />
+          <text className="fd-label" x={295} y={182} textAnchor="middle">poll /jobs/:id · 2 s</text>
+          <path className="fd-line" d="M214 190 H374" markerStart="url(#fd-arrow)" markerEnd="url(#fd-arrow)" />
+
+          {/* API <-> workers */}
+          <text className="fd-label" x={665} y={117} textAnchor="middle">run steps 1 to 4</text>
+          <path className="fd-line" d="M584 125 H744" markerEnd="url(#fd-arrow)" />
+          <text className="fd-label back" x={665} y={167} textAnchor="middle">files on disk</text>
+          <path className="fd-line back" d="M746 175 H586" markerEnd="url(#fd-arrow-back)" />
+
+          {/* finished model back to the viewer */}
+          <path className="fd-line back" d="M480 226 V272 H110 V228" markerEnd="url(#fd-arrow-back)" />
+          <text className="fd-label back" x={295} y={264} textAnchor="middle">GET /files/:id/model.glb · into the viewer</text>
+        </svg>
+      </div>
+      <p className="fd-caption">The browser never holds a request open for the minutes a run takes. It submits once, then polls the job.</p>
+    </div>
+  );
+}
+
 const TIERS = [
   {
     icon: 'monitor', tag: 'CLIENT', title: 'Browser', sub: 'React 18 · Vite · three.js',
@@ -109,6 +186,7 @@ export default function Architecture() {
             <h2 id="ov-h">Three layers</h2>
           </div>
         </div>
+        <FlowDiagram />
         <div className="ar-tiers">
           {TIERS.map((t, i) => (
             <React.Fragment key={t.tag}>
@@ -148,7 +226,10 @@ export default function Architecture() {
                 <header>
                   <span className="feature-icon"><Icon name={s.icon} size={18} /></span>
                   <div><h3>{s.title}</h3><code>{s.file}</code></div>
-                  <div className="stage-out"><small>OUTPUT</small><strong>{s.out}</strong><em>{s.outNote}</em></div>
+                  <div className="stage-out">
+                    <StageThumb out={s.out} />
+                    <div className="stage-out-text"><small>OUTPUT</small><strong>{s.out}</strong><em>{s.outNote}</em></div>
+                  </div>
                 </header>
                 <ul>{s.points.map((p) => <li key={p}>{p}</li>)}</ul>
               </article>

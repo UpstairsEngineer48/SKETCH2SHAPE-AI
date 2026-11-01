@@ -3,6 +3,7 @@ import Icon from '../components/Icon.jsx';
 import SketchCanvas from '../components/SketchCanvas.jsx';
 import UploadPanel from '../components/UploadPanel.jsx';
 import ModelViewer from '../components/ModelViewer.jsx';
+import PipelineLive from '../components/PipelineLive.jsx';
 import { cancelJob, generateModel, getBackends } from '../lib/api.js';
 import { log } from '../lib/logger.js';
 
@@ -274,7 +275,14 @@ export default function Studio({ api }) {
               
             </div>
 
-            <ModelViewer modelUrl={output?.modelUrl} format={output?.format} isGenerating={generationState === 'generating'} statusText={progress?`${progress.label} · step ${progress.step}/${progress.total_steps} · ${progress.elapsed}s`:undefined} />
+            <ModelViewer
+              modelUrl={output?.modelUrl}
+              format={output?.format}
+              isGenerating={generationState === 'generating'}
+              statusText={progress?`${progress.label} · step ${progress.step}/${progress.total_steps} · ${progress.elapsed}s`:undefined}
+            >
+              <PipelineLive jobId={jobRef.current} step={progress?.step} />
+            </ModelViewer>
 
             <div className="output-toolbar">
               <div className="output-file-info">

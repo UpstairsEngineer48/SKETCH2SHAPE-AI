@@ -7,7 +7,7 @@ const ex = (name, file) => `${BASE}examples/${name}/${file}`.replace(/\/{2,}/g, 
 
 // Real outputs of this pipeline (copied from backend/base/outputs/<job_id>/).
 const EXAMPLES = {
-  heart: { label: 'Heart', job: '0dcebb7e35bf', prompt: 'heart' },
+  heart: { label: 'Apples', job: '0dcebb7e35bf', prompt: 'Apples' },
   car: { label: 'Car', job: '583e17253c09', prompt: 'no prompt' },
 };
 
@@ -57,12 +57,12 @@ export default function Landing() {
         <div className="lp-hero-stage" aria-hidden="true">
           <div className="stage-glow" />
           <figure className="stage-card stage-sketch">
-            <img src={ex('car', 'sketch.webp')} alt="" />
+            <img src={ex('car', 'sketch.png')} alt="" />
             <figcaption>SKETCH</figcaption>
           </figure>
           <div className="stage-arrow"><Icon name="arrow" size={18} /></div>
           <figure className="stage-card stage-model">
-            <img src={ex('car', 'foreground.webp')} alt="" />
+            <img src={ex('car', 'foreground.png')} alt="" />
             <figcaption><span className="live-dot" /> 3D · GLB</figcaption>
           </figure>
           <span className="stage-chip chip-a">ControlNet</span>

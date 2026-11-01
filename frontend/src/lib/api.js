@@ -9,6 +9,8 @@ function joinApiPath(path) {
   return `${API_BASE_URL}${cleanPath}`;
 }
 
+export const fileUrl = (jobId, name) => joinApiPath(`/files/${jobId}/${name}`);
+
 export function getHealthUrl() {
   return joinApiPath(HEALTH_PATH);
 }

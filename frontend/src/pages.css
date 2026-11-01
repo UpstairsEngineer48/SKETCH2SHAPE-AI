@@ -244,3 +244,126 @@
 @media (prefers-reduced-motion: reduce) {
   .feature-card, .btn-primary, .nav-cta { transition: none; }
 }
+/* =====================================================
+   Motion layer: live pipeline, hero build, reveals, backdrop.
+   Everything here respects prefers-reduced-motion.
+   ===================================================== */
+
+/* live pipeline chips (inside the viewer's generating overlay) */
+.pl-live { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 22px 20px 0; width: min(520px, 90%); }
+.pl-chip { display: grid; gap: 3px; text-align: left; opacity: .45; transition: opacity .4s, transform .4s; }
+.pl-chip.active, .pl-chip.done { opacity: 1; }
+.pl-chip.done { transform: translateY(-2px); }
+.pl-thumb { aspect-ratio: 1; border-radius: 8px; border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.04); overflow: hidden; position: relative; }
+.pl-thumb img { width: 100%; height: 100%; object-fit: contain; background: #fff; animation: plIn .6s ease both; }
+.pl-chip small { font: 500 10px var(--mono); color: #8d93ab; }
+.pl-chip strong { font-size: 11px; color: #d3d4e1; }
+.pl-pulse { position: absolute; inset: 0; background: linear-gradient(110deg, transparent 30%, rgba(140,128,240,.35) 50%, transparent 70%); background-size: 200% 100%; animation: plSweep 1.4s linear infinite; }
+@keyframes plIn { from { opacity: 0; transform: scale(1.08); filter: blur(6px); } }
+@keyframes plSweep { to { background-position: -200% 0; } }
+@media (max-width: 560px) { .pl-live { gap: 6px; margin: 16px 10px 0; } .pl-chip strong { font-size: 10px; } }
+
+/* hero: the model card builds itself, bottom to top, with a scan line */
+.stage-model img { animation: build 7s ease-in-out infinite; }
+.stage-model::after { content: ''; position: absolute; left: 0; right: 0; height: 2px; bottom: 0; background: linear-gradient(90deg, transparent, #5bc8b2, transparent); box-shadow: 0 0 14px #5bc8b2; animation: scan 7s ease-in-out infinite; pointer-events: none; }
+@keyframes build { 0% { clip-path: inset(100% 0 0 0); opacity: 1; } 40%, 90% { clip-path: inset(0); opacity: 1; } 100% { clip-path: inset(0); opacity: 0; } }
+@keyframes scan { 0% { bottom: 0; opacity: 1; } 40% { bottom: calc(100% - 2px); opacity: 1; } 41%, 100% { opacity: 0; } }
+
+/* scroll reveals */
+.reveal { opacity: 0; transform: translateY(24px); transition: opacity .7s cubic-bezier(.2,.7,.2,1), transform .7s cubic-bezier(.2,.7,.2,1); transition-delay: var(--d, 0ms); }
+.reveal.in { opacity: 1; transform: none; }
+
+/* slow drifting colour behind everything */
+.app-shell::before { content: ''; position: fixed; inset: -20%; z-index: -1; pointer-events: none; filter: blur(24px);
+  background: radial-gradient(40% 35% at 18% 12%, rgba(112,100,220,.18), transparent 70%), radial-gradient(35% 30% at 88% 28%, rgba(91,200,178,.14), transparent 70%);
+  animation: drift 26s ease-in-out infinite alternate; }
+@keyframes drift { to { transform: translate3d(4%, 6%, 0) scale(1.08); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .stage-model img, .stage-model::after, .app-shell::before, .pl-pulse, .pl-thumb img { animation: none; }
+  .reveal { opacity: 1; transform: none; transition: none; }
+}
+
+/* =====================================================
+   Hero card shake + headline gradient
+   ===================================================== */
+
+/* The two hero cards: still most of the time, then a short nervous shake.
+   Second card starts a beat later so they don't move in lockstep. */
+.stage-card { will-change: transform; transform-origin: 50% 60%; animation: cardShake 6s ease-in-out infinite; }
+.stage-model { animation-delay: .35s; animation-direction: reverse; }
+.lp-hero-stage:hover .stage-card { animation-duration: 2.4s; }
+@keyframes cardShake {
+  0%, 22%, 100% { transform: translate(0, 0) rotate(0); }
+  3%   { transform: translate(-2.5px, 1px) rotate(-.9deg); }
+  6%   { transform: translate(2.5px, -1px) rotate(.9deg); }
+  9%   { transform: translate(-2px, .5px) rotate(-.6deg); }
+  12%  { transform: translate(1.5px, 1px) rotate(.5deg); }
+  15%  { transform: translate(-1px, -.5px) rotate(-.3deg); }
+  18%  { transform: translate(.5px, 0) rotate(.15deg); }
+}
+
+/* Headline accent words: a tight ink-to-teal blend, no glow, no animation.
+   Colours come from the sketch palette already used in the app. */
+.lp-hero-copy h1 span,
+.ar-hero h1 span,
+.intro-copy h1 span {
+  color: #5b4fca; /* fallback */
+  background: linear-gradient(100deg, #5b4fca 0%, #4a6ec4 48%, #238b7c 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+[data-theme="dark"] .lp-hero-copy h1 span,
+[data-theme="dark"] .ar-hero h1 span,
+[data-theme="dark"] .intro-copy h1 span {
+  color: #a79dff;
+  background: linear-gradient(100deg, #a79dff 0%, #84a2ea 50%, #5bc8b2 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stage-card { animation: none; }
+}
+
+/* =====================================================
+   Architecture: stage thumbnails + request-flow diagram
+   ===================================================== */
+
+/* output box now holds a thumbnail beside the text */
+.stage-out { flex-direction: row; align-items: center; gap: 12px; padding: 8px 12px 8px 8px; }
+.stage-out-text { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
+.stage-thumb { position: relative; flex: 0 0 auto; width: 68px; height: 68px; display: grid; place-items: center; border-radius: 8px; overflow: hidden; border: 1px solid var(--pg-line); background: #fff; }
+.stage-thumb img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.stage-thumb.dark { background: #000; }
+.stage-thumb.checker { background: conic-gradient(var(--pg-checker-a) 25%, var(--pg-checker-b) 0 50%, var(--pg-checker-a) 0 75%, var(--pg-checker-b) 0) 0 0 / 10px 10px; }
+.stage-thumb.mesh { background: #111522; border-color: #252a3d; color: #a8a7c5; }
+.stage-thumb.mesh img { position: absolute; inset: 0; padding: 8%; opacity: .28; filter: blur(1px); }
+.stage-thumb.mesh svg { position: relative; }
+@media (max-width: 560px) {
+  .stage-out { width: 100%; }
+  .stage-out-text { align-items: flex-start; }
+}
+
+/* request-flow diagram (theme colours come from the --pg tokens) */
+.fd-panel { padding: 18px 20px 14px; margin-bottom: 16px; }
+.fd-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 4px; color: var(--pg-chip-ink); font: 500 11px var(--mono); letter-spacing: .11em; }
+.fd-head small { color: var(--pg-faint); font-size: 11px; letter-spacing: .04em; }
+.fd-svg { display: block; width: 100%; min-width: 720px; height: auto; }
+.fd-box { fill: var(--pg-soft); stroke: var(--pg-line); stroke-width: 1; }
+.fd-title { fill: var(--pg-ink); font: 750 15px var(--display); letter-spacing: -.02em; }
+.fd-sub { fill: var(--pg-faint); font: 11px var(--mono); }
+.fd-item { fill: var(--pg-sub); font: 11px var(--mono); }
+.fd-label { fill: var(--pg-chip-ink); font: 500 11px var(--mono); }
+.fd-label.back { fill: #3f9f88; }
+.fd-line { fill: none; stroke: var(--purple); stroke-width: 1.5; stroke-dasharray: 5 5; animation: fdFlow 1.2s linear infinite; }
+.fd-line.back { stroke: #4ab99e; }
+.fd-tip { fill: var(--purple); }
+.fd-tip.back { fill: #4ab99e; }
+.fd-caption { margin: 6px 0 0; color: var(--pg-sub); font-size: 12px; line-height: 1.6; }
+@keyframes fdFlow { to { stroke-dashoffset: -20; } }
+@media (prefers-reduced-motion: reduce) { .fd-line { animation: none; } }

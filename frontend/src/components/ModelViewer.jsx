@@ -3,9 +3,10 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import Icon from './Icon.jsx';
 
-export default function ModelViewer({ modelUrl, format, isGenerating, statusText }) {
+export default function ModelViewer({ modelUrl, format, isGenerating, statusText, children }) {
   const mountRef = useRef(null);
   const [loadError, setLoadError] = useState('');
   const [loaded, setLoaded] = useState(false);
@@ -108,12 +109,28 @@ export default function ModelViewer({ modelUrl, format, isGenerating, statusText
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     mount.appendChild(renderer.domElement);
 
+    // Image-based lighting: gives materials believable reflections and depth.
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    scene.environmentIntensity = 0.7;
+
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.065;
     controls.minDistance = 1.5;
     controls.maxDistance = 11;
     controls.target.set(0, 0.1, 0);
+
+    // Gentle turntable that pauses while the user interacts.
+    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    controls.autoRotate = !reduceMotion;
+    controls.autoRotateSpeed = 1.1;
+    let resumeTimer = 0;
+    controls.addEventListener('start', () => { controls.autoRotate = false; clearTimeout(resumeTimer); });
+    controls.addEventListener('end', () => {
+      if (reduceMotion) return;
+      resumeTimer = setTimeout(() => { controls.autoRotate = true; }, 4000);
+    });
 
     scene.add(new THREE.HemisphereLight(0xe3e8ff, 0x25293a, 2.1));
     const keyLight = new THREE.DirectionalLight(0xffffff, 3.1);
@@ -234,6 +251,7 @@ export default function ModelViewer({ modelUrl, format, isGenerating, statusText
 
     return () => {
       disposed = true;
+      clearTimeout(resumeTimer);
       cancelAnimationFrame(frameId);
       resizeObserver.disconnect();
       controls.dispose();
@@ -249,6 +267,7 @@ export default function ModelViewer({ modelUrl, format, isGenerating, statusText
           });
         }
       });
+      pmrem.dispose();
       renderer.dispose();
       renderer.domElement.remove();
       if (loadedObject) loadedObject.clear();
@@ -270,6 +289,7 @@ export default function ModelViewer({ modelUrl, format, isGenerating, statusText
           <div className="generation-spinner"><span /></div>
           <strong>Building your 3D asset</strong>
           <p>{statusText||'Starting · this usually takes a few minutes'}</p>
+          {children}
         </div>
       )}
       {loadError && (

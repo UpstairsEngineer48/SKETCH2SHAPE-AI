@@ -7,9 +7,11 @@ import Architecture from './pages/Architecture.jsx';
 import useHashRoute from './lib/useHashRoute.js';
 import useTheme from './lib/useTheme.js';
 import useApiHealth from './lib/useApiHealth.js';
+import useReveal from './lib/useReveal.js';
 
 export default function App() {
   const route = useHashRoute();
+  useReveal(route);
   const { theme, toggleTheme } = useTheme();
   const api = useApiHealth();
 
