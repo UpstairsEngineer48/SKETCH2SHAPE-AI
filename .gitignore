@@ -31,5 +31,7 @@ node_modules/
 # Misc
 *.bak
 # Generated jobs
-backend/base/outputs/*
 !backend/base/outputs/.gitkeep
+
+
+_site/

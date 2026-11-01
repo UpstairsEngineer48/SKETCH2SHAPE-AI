@@ -1,10 +1,172 @@
+<div align="center">
+
 # Sketch2Shape AI
 
-Sketch -> ControlNet render -> background removal -> 3D mesh (InstantMesh or Hunyuan3D) -> mesh check + clean-up -> GLB viewer.
+**Draw a rough idea. Get a real 3D model.**
+
+Sketch → ControlNet render → background removal → 3D mesh → mesh check → GLB viewer
+
+![Python](https://img.shields.io/badge/Python-3.13-3776AB?logo=python&logoColor=white)
+![Node](https://img.shields.io/badge/Node-18%2B-5FA04E?logo=node.js&logoColor=white)
+![React](https://img.shields.io/badge/React-18%20%2B%20Vite-61DAFB?logo=react&logoColor=black)
+![three.js](https://img.shields.io/badge/viewer-three.js-000000?logo=three.js&logoColor=white)
+![Export](https://img.shields.io/badge/export-.glb-7064DC)
+![Event](https://img.shields.io/badge/TechZephyr%204.0-IIT%20Bhubaneswar-5BC8B2)
+
+[Showcase](#showcase) · [Gallery](GALLERY.md) · [Quick start](#quick-start) · [How it works](#how-it-works) · [Performance](#performance-measured) · [Limitations](#limitations)
+
+<p>
+  <img src="frontend/public/examples/car/sketch.png" width="22%" alt="Car sketch" />
+  <img src="frontend/public/examples/car/control.png" width="22%" alt="Car control map" />
+  <img src="frontend/public/examples/car/rendered.png" width="22%" alt="Car render" />
+  <img src="frontend/public/examples/car/foreground.png" width="22%" alt="Car cutout, ready for 3D" />
+</p>
+<sub>Sketch · control map · render · cutout, then a mesh you can spin in the browser. Real output of this pipeline, untouched.</sub>
+
+</div>
+
+---
+
+## Overview
+
+Sketch2Shape AI turns a single-view 2D sketch into an exportable 3D asset. You draw on a
+built-in canvas or upload an image, optionally add a short text prompt, and the app
+interprets the sketch, renders the object, isolates it and reconstructs a mesh you can
+orbit in the browser and download as `.glb`.
+
+**Pipeline:** sketch -> ControlNet render -> background removal -> 3D mesh (InstantMesh or Hunyuan3D) -> mesh check + clean-up -> GLB viewer.
 
 Every exported file is opened and checked before a job counts as done (non-empty
 geometry, finite vertices, real 3D volume). The result page shows what was found
 (faces, and whether the file has a texture, vertex colours, or is shape only).
+
+Built for the TechZephyr 4.0 *Sketch2Shape AI* problem statement. No model was trained or
+fine-tuned for this project. Every pretrained model and external service is disclosed in
+[Models, external services and licences](#models-external-services-and-licences).
+
+## Showcase
+
+Everything below is real output from our own runs, copied unchanged from
+`backend/base/outputs/<job_id>/`.
+
+### Car (no prompt, job `583e17253c09`)
+
+| Sketch | Control map | Rendered | Cutout |
+|---|---|---|---|
+| <img src="frontend/public/examples/car/sketch.png" width="190" alt="Car sketch" /> | <img src="frontend/public/examples/car/control.png" width="190" alt="Car control map" /> | <img src="frontend/public/examples/car/rendered.png" width="190" alt="Car render" /> | <img src="frontend/public/examples/car/foreground.png" width="190" alt="Car cutout" /> |
+
+Final mesh: [`model.glb`](frontend/public/examples/car/model.glb) (about 3.2 MB).
+
+### Apples (prompt `Apples`, job `0dcebb7e35bf`)
+
+| Sketch | Control map | Rendered | Cutout |
+|---|---|---|---|
+| <img src="frontend/public/examples/heart/sketch.png" width="190" alt="Apples sketch" /> | <img src="frontend/public/examples/heart/control.png" width="190" alt="Apples control map" /> | <img src="frontend/public/examples/heart/rendered.png" width="190" alt="Apples render" /> | <img src="frontend/public/examples/heart/foreground.png" width="190" alt="Apples cutout" /> |
+
+Final mesh: [`model.glb`](frontend/public/examples/heart/model.glb) (about 4.7 MB).
+
+### The outputs folder: every run, every stage
+
+These two are only the curated pair. The app writes **one self-contained folder per job**
+into `backend/base/outputs/`, and that folder holds the results of all our test runs:
+sketches of different objects, with and without prompts, drawn on the canvas and uploaded as
+photos, through each 3D engine. Open any folder to see how a single sketch moved through the pipeline.
+
+```
+backend/base/outputs/
+└── <job_id>/
+    ├── control.png      stage 1  control map (512 px, white lines on black)
+    ├── rendered.png     stage 2  sketch-guided render (skipped for photos)
+    ├── foreground.png   stage 3  RGBA cutout, square, centred
+    ├── model.glb        stage 4  final mesh after check + clean-up
+    └── model_raw.glb             the untouched export from the 3D engine
+```
+
+Per-stage timings for each job are in `backend/logs/jobs/<job_id>.log`.
+
+**[Browse the full gallery of every run](GALLERY.md)**: every sketch, control map, render and
+cutout from `backend/base/outputs/`, newest first, with a download link for each mesh. It is
+regenerated whenever new job folders are pushed, so it grows with the outputs.
+To rebuild it by hand, run `python tools/build_gallery.py --markdown`. For an interactive
+version with a 3D viewer, run `python tools/build_gallery.py` and open `_site/index.html`.
+
+Count the runs we made:
+
+```
+# PowerShell
+(Get-ChildItem backend\base\outputs -Directory).Count
+
+# macOS / Linux
+ls backend/base/outputs | wc -l
+```
+
+Open any `model.glb` in Blender (*File -> Import -> glTF 2.0*), the Windows 3D Viewer, or any
+glTF viewer. Inside the app, the Studio page loads and exports the same files.
+
+## How it works
+
+```mermaid
+flowchart LR
+    A["Sketch<br/>canvas or upload"] --> B["1 · Preprocess<br/>control map"]
+    B --> C["2 · ControlNet + SD 1.5<br/>sketch-guided render"]
+    C --> D["3 · rembg<br/>cutout"]
+    D --> E["4 · Image to 3D<br/>InstantMesh / Hunyuan3D"]
+    E --> F["Mesh check<br/>+ clean-up"]
+    F --> G[("model.glb")]
+```
+
+| Stage | What happens | Model or tool | Output |
+|---|---|---|---|
+| 1. Preprocess | Pads to a square, classifies sketch vs photo, builds the control map (Otsu + line thickening for sketches, Canny for photos). An empty sketch is rejected with a clear message. | OpenCV, Pillow, NumPy | `control.png` |
+| 2. Render | Sketch-guided image generation. The prompt styles the object, the strokes keep its shape. Photos skip this stage by default. | Stable Diffusion 1.5 + ControlNet Scribble / Canny | `rendered.png` |
+| 3. Cutout | Removes the background, cleans the mask, centres the object and fills about 85% of a square frame. | rembg (BiRefNet, then ISNet, then U2Net) | `foreground.png` |
+| 4. Image to 3D | Tries the selected engine, or the whole fallback chain in Auto mode. | InstantMesh (local or API), Hunyuan3D-2mini | `model_raw.glb` |
+| 5. Check + clean-up | Opens the file, verifies geometry, removes floating specks, centres and scales, decimates uncoloured meshes. | trimesh | `model.glb` |
+
+How one run travels between the three layers (browser, Flask API, model workers):
+
+```mermaid
+sequenceDiagram
+    participant B as Browser (React + three.js)
+    participant A as Flask API
+    participant W as Model workers
+    B->>A: POST /api/generate (image, prompt, engine, seed)
+    A-->>B: 202 + job_id
+    A->>W: preprocess, render, cutout, mesh
+    loop every 2 s
+        B->>A: GET /api/jobs/{job_id}
+        A-->>B: status, step, label
+    end
+    W-->>A: files in backend/base/outputs/{job_id}/
+    B->>A: GET /api/files/{job_id}/model.glb
+    A-->>B: model.glb into the 3D viewer
+```
+
+Design choices worth knowing:
+
+- **Job polling, not one long request.** A run takes minutes, so the browser submits once and polls. Progress is visible and nothing times out.
+- **Heavy models run in their own processes.** Hunyuan3D and InstantMesh pin their own library versions, so they get separate environments. That keeps the backend env clean and frees all VRAM when they exit.
+- **Fallback chain for the mesh step.** A missing install, a full GPU or an API quota error moves on to the next engine instead of failing the job.
+- **The sketch stays the source of truth.** ControlNet conditions on your strokes, so the prompt styles the object rather than replacing it.
+- **One GPU job at a time.** A lock queues requests, which avoids out-of-memory crashes on a single GPU.
+
+## What the problem statement asked for, and where it is
+
+| Requirement | How Sketch2Shape covers it |
+|---|---|
+| In-app sketching | Canvas with brush, eraser, colours, brush size, undo, redo and clear |
+| Image upload | PNG, JPG or WEBP, up to 15 MB |
+| Optional text prompt | Up to 400 characters, never required |
+| Input preparation | Stage 1: square padding, sketch/photo detection, thresholding, edge maps |
+| Sketch-guided generation | Stable Diffusion 1.5 with ControlNet (Scribble for drawings, Canny for photos) |
+| Background removal | rembg with BiRefNet, falling back to ISNet and U2Net |
+| 3D reconstruction | InstantMesh (local or API) and Hunyuan3D-2mini, with automatic fallback |
+| Export as `.glb` or `.obj` | `.glb` export, and the viewer also opens `.obj` |
+| Mesh validation | Every export is reopened and checked (non-empty geometry, finite vertices, real volume). `mesh_stats` reports the result |
+| Preview and download | Embedded three.js viewer (orbit, zoom, pan, fullscreen) and an Export button |
+| Disclose models and services | [Models, external services and licences](#models-external-services-and-licences) |
+| Report time, hardware, limitations | [Performance](#performance-measured) and [Limitations](#limitations) |
+| Example inputs and outputs | [Showcase](#showcase) and `backend/base/outputs/` |
 
 ## Requirements
 
@@ -13,26 +175,22 @@ geometry, finite vertices, real 3D volume). The result page shows what was found
 - Python 3.13 for the backend; Hunyuan3D and local InstantMesh use their own envs (see below)
 - Node 18 or newer for the frontend
 
-## Run it
+## Quick start
+
+The shortest path to a working run. It needs no extra environments: engines that are not
+set up are skipped, and the job uses the InstantMesh Hugging Face Space
+(`instantmesh_api`), which is an **external service** (internet required, free
+`HF_TOKEN` recommended).
 
 **Backend** (terminal 1, PowerShell)
 
 ```
 cd ./backend
+python -m venv .venv
 .venv\Scripts\activate
-$env:HF_TOKEN="hf_xxxxxxxx"        # your own free Hugging Face token
-$env:S2S_HY_PYTHON="C:\Users\PRANJAL\Hunyuan3D-2\.venv\Scripts\python.exe"
-$env:S2S_IM_DIR="C:\Users\PRANJAL\InstantMesh"
-$env:S2S_IM_PYTHON="C:\Users\PRANJAL\InstantMesh\.venv\Scripts\python.exe"
-$env:S2S_IM_CONFIG="configs/lowvram/instant-mesh-base.yaml"
-$env:S2S_LOW_VRAM="1"
-$env:PYTORCH_CUDA_ALLOC_CONF="max_split_size_mb:128"
-# optional: override the engine order (default: instantmesh_local,instantmesh_api,hunyuan)
-# $env:S2S_MESH="hunyuan,instantmesh_local,instantmesh_api"
-
-# NVIDIA GPU? install the CUDA torch FIRST (pick your CUDA version on pytorch.org):
 pip install torch --index-url https://download.pytorch.org/whl/cu121
 pip install -r ../requirements.txt
+$env:HF_TOKEN="hf_xxxxxxxx"        # your own free Hugging Face token
 python app.py
 ```
 
@@ -47,13 +205,61 @@ npm run dev
 Open http://localhost:5173. The status light in the top bar turns green when
 the model is loaded. The first start downloads several GB of weights.
 
-## Why it can be slow
+Then open **Studio**, draw one object (dark lines, white background), press *Generate 3D model*,
+and expect a finished model in roughly 4 to 6 minutes on a laptop GPU. Use *Export GLB* to download it.
 
-| Cause | Fix |
-|---|---|
-| torch installed without CUDA (log says `No CUDA GPU detected`) | reinstall torch with the CUDA index URL above |
-| No `HF_TOKEN`: the shared InstantMesh Space queues or rejects you | create a free token at huggingface.co/settings/tokens |
-| GPU with little VRAM | start with `S2S_LOW_VRAM=1` |
+## Full local setup
+
+For fully local runs (no external service), install the engines below and point the backend
+at them. Adjust the paths to your machine.
+
+**Backend** (terminal 1, PowerShell)
+
+```
+cd ./backend
+.venv\Scripts\activate
+$env:HF_TOKEN="hf_xxxxxxxx"        # your own free Hugging Face token
+$env:S2S_HY_PYTHON="C:\path\to\Hunyuan3D-2\.venv\Scripts\python.exe"
+$env:S2S_IM_DIR="C:\path\to\InstantMesh"
+$env:S2S_IM_PYTHON="C:\path\to\InstantMesh\.venv\Scripts\python.exe"
+$env:S2S_IM_CONFIG="configs/lowvram/instant-mesh-base.yaml"
+$env:S2S_LOW_VRAM="1"
+$env:PYTORCH_CUDA_ALLOC_CONF="max_split_size_mb:128"
+# optional: override the engine order (default: instantmesh_local,instantmesh_api,hunyuan)
+# $env:S2S_MESH="hunyuan,instantmesh_local,instantmesh_api"
+
+# NVIDIA GPU? install the CUDA torch FIRST (pick your CUDA version on pytorch.org):
+pip install torch --index-url https://download.pytorch.org/whl/cu121
+pip install -r ../requirements.txt
+python app.py
+```
+
+The frontend is started the same way as in the quick start.
+
+## Using the app
+
+**Inputs**
+
+- A sketch drawn on the canvas, or an uploaded PNG / JPG / WEBP (up to 15 MB)
+- An optional prompt (up to 400 characters) for colour, material or style
+- An optional 3D engine choice (Auto tries them in order) and an optional seed
+
+**Outputs**
+
+- `model.glb` (or `.obj`) that opens in Blender and other 3D software
+- The intermediate images of every stage, plus a mesh report: faces, and whether the model is textured, vertex-coloured or shape only
+
+Tip: draw one object, dark lines, white background, no scribbled shading.
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| Generation is very slow, log says `No CUDA GPU detected` | torch installed without CUDA | reinstall torch with the CUDA index URL above |
+| The shared InstantMesh Space queues or rejects you | No `HF_TOKEN` | create a free token at huggingface.co/settings/tokens |
+| Out of memory on a small GPU | Little VRAM | start with `S2S_LOW_VRAM=1` and the `lowvram` InstantMesh config |
+| Status light says *Model loading* | First start is downloading weights | wait; it turns green when loading finishes |
+| Status light says *API offline* | Backend is not running or not reachable | start `python app.py` in `backend`; the frontend proxies `/api` to `127.0.0.1:8000` |
 
 On CPU the app switches to a fast 6-step sampler automatically (`S2S_FAST=auto`).
 Force it with `S2S_FAST=1`, or turn it off with `S2S_FAST=0` for slightly better quality.
@@ -105,7 +311,10 @@ $env:S2S_MESH="hunyuan,instantmesh_api"    # Hunyuan first, API as fallback
 prints the active order at start, and a finished job reports which backend made
 it in the `backend` field of `/api/jobs/<id>`.
 
-### Hunyuan3D setup (shape-only engine)
+<details>
+<summary><b>Hunyuan3D setup (shape-only engine)</b></summary>
+
+<br />
 
 Hunyuan3D runs in its own environment, started by the backend as a separate process.
 
@@ -144,7 +353,12 @@ $env:S2S_HY_PYTHON="C:\path\to\Hunyuan3D-2\.venv\Scripts\python.exe"
 The model weights (`tencent/Hunyuan3D-2mini`) download automatically on the first
 job, so that run is slower. If it runs out of memory, lower `S2S_HY_OCT` (e.g. 192).
 
-### Local InstantMesh setup
+</details>
+
+<details>
+<summary><b>Local InstantMesh setup</b></summary>
+
+<br />
 
 InstantMesh pins its own torch / diffusers versions and builds nvdiffrast, so it
 needs a separate environment, not the backend one.
@@ -165,6 +379,8 @@ $env:S2S_IM_PYTHON="C:\path\to\instantmesh-env\Scripts\python.exe"
 It needs an NVIDIA GPU. If it runs out of memory, use
 `$env:S2S_IM_CONFIG="configs/instant-mesh-base.yaml"` (or the `lowvram` config).
 
+</details>
+
 ## API
 
 - `POST /api/generate` (multipart `image`, optional `prompt`, `backend`, `seed`) -> `{job_id}`
@@ -175,8 +391,6 @@ It needs an NVIDIA GPU. If it runs out of memory, use
 
 `mesh_stats` holds `vertices`, `faces`, `extent`, `watertight`, `file_bytes` and `look`
 (`textured`, `vertex_colors` or `shape_only`).
-
-Tips: draw one object, dark lines, white background, no scribbled shading.
 
 ## Models, external services and licences
 
@@ -208,9 +422,17 @@ Notes:
 
 ## Performance (measured)
 
-Hardware: NVIDIA GeForce RTX 4050 Laptop GPU, Windows, Python 3.13, torch CUDA build
-(fill in: VRAM, system RAM, CPU, torch version). Render model on CUDA in fp16, 20 steps (`S2S_FAST` off),
-with the environment settings shown under "Run it".
+Hardware used for the numbers below:
+
+| Item | Value |
+|---|---|
+| GPU | NVIDIA GeForce RTX 4050 Laptop GPU (6 GB VRAM) |
+| OS | Windows |
+| Python | 3.13, torch CUDA build |
+| CPU, system RAM, torch version | (fill in) |
+
+Render model on CUDA in fp16, 20 steps (`S2S_FAST` off), with the environment settings
+shown under "Full local setup".
 
 Times in seconds, taken from `backend/logs/jobs/<id>.log` (one finished job each):
 
@@ -246,3 +468,11 @@ Times in seconds, taken from `backend/logs/jobs/<id>.log` (one finished job each
 pip install pytest
 python -m pytest tests -q
 ```
+
+---
+
+<div align="center">
+
+Built by **Team Tabahi** for **TechZephyr 4.0** · IIT Bhubaneswar · 2026
+
+</div>
