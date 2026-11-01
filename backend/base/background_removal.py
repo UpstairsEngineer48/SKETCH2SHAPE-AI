@@ -18,9 +18,10 @@ Env vars (all optional)
   S2S_CLEAN         1 (default) mask cleanup, 0 = off
   S2S_UPSCALE_TO    default 1024, 0 = never upscale (only used while segmenting)
   S2S_ALPHA_LEVELS  1 (default) tighten the soft edge band, 0 = keep it as is
-  S2S_DEBUG         1 = print which fallbacks were used
+  S2S_DEBUG         1 = also print which fallbacks were used (they are always logged)
 """
 
+import logging
 import os
 import threading
 from pathlib import Path
@@ -52,8 +53,12 @@ def _env_on(name, default="1"):
     return os.getenv(name, default) == "1"
 
 
+log=logging.getLogger(__name__)
+
+
 def _log(msg):
-    if _env_on("S2S_DEBUG", "0"):
+    log.info("%s",msg)   # always in backend.log, so a quality change between machines can be explained
+    if _env_on("S2S_DEBUG","0"):
         print(f"[background_removal] {msg}")
 
 

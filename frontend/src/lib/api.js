@@ -66,11 +66,17 @@ export async function getBackends(){
   return (await response.json()).backends||[];
 }
 
-export async function generateModel({image,prompt,inputType,backend,signal,onProgress}){
+export async function cancelJob(jobId){
+  const response=await loggedFetch(joinApiPath(`/jobs/${jobId}/cancel`),{method:'POST'},{quiet:true});
+  return response.ok;
+}
+
+export async function generateModel({image,prompt,inputType,backend,seed,signal,onJob,onProgress}){
   const formData=new FormData();
   formData.append('image',image,image.name||'sketch.png');
   formData.append('input_type',inputType);
   formData.append('backend',backend||'auto');
+  if(String(seed??'').trim()!=='')formData.append('seed',String(seed).trim());
   if(prompt?.trim())formData.append('prompt',prompt.trim());
 
   log.info('Generate: submitting',{inputType,backend:backend||'auto',promptLength:prompt?.trim().length||0,imageBytes:image.size});
@@ -79,6 +85,8 @@ export async function generateModel({image,prompt,inputType,backend,signal,onPro
   const {job_id:jobId}=await submit.json();
   if(!jobId)throw new Error('The API did not return a job id.');
   log.info('Generate: job accepted',{jobId});
+  onJob?.(jobId);
+  if(signal?.aborted){cancelJob(jobId).catch(()=>{});throw new DOMException('Cancelled','AbortError');}
   const startedAt=performance.now();
   let lastStep=null;
   let lastLabel=null;
@@ -101,6 +109,10 @@ export async function generateModel({image,prompt,inputType,backend,signal,onPro
       log.error(`Job ${jobId}: failed`,{error:job.error,elapsed:job.elapsed});
       throw new Error(job.error||'Generation failed.');
     }
+    if(job.status==='cancelled'){
+      log.info(`Job ${jobId}: cancelled`,{elapsed:job.elapsed});
+      throw new DOMException('Cancelled','AbortError');
+    }
     if(job.status==='done'){
       const format=(job.format||'glb').toLowerCase()==='obj'?'obj':'glb';
       log.info(`Job ${jobId}: done`,{backend:job.backend,format,totalSeconds:Math.round((performance.now()-startedAt)/1000)});
@@ -111,6 +123,8 @@ export async function generateModel({image,prompt,inputType,backend,signal,onPro
         previewUrl:job.preview_url?resolveAssetUrl(job.preview_url):null,
         jobId,
         backend:job.backend||null,
+        seed:job.seed??null,
+        meshStats:job.mesh_stats||null,
         isObjectUrl:false,
       };
     }

@@ -8,24 +8,32 @@ Backends:
   instantmesh_api    InstantMesh HF Space, remote API   (base/instantmesh.py)
 
 S2S_MESH is the order to try them in (comma separated). Default:
-  hunyuan,instantmesh_local,instantmesh_api
+  instantmesh_local,instantmesh_api,hunyuan
 
-A backend that is not set up on this machine (e.g. no S2S_IM_DIR) is skipped
-without being tried. Use a single name (S2S_MESH=hunyuan) to turn the
-fallback off.
+InstantMesh comes first because it writes vertex colours; Hunyuan3D-2mini is
+shape only (plain grey), so it is the last resort. A backend that is not set
+up on this machine (e.g. no S2S_IM_DIR) is skipped without being tried. Use a
+single name (S2S_MESH=hunyuan) to turn the fallback off.
+
+Every result is opened and checked (base/validate.py) before it is accepted.
+An empty or corrupt file counts as a failure and the next backend is tried.
 """
 
 import logging
 import os
+from pathlib import Path
+
+from base import cancel
+from base.validate import validate_mesh
 
 log=logging.getLogger(__name__)
 
-DEFAULT_CHAIN="hunyuan,instantmesh_local,instantmesh_api"
+DEFAULT_CHAIN="instantmesh_local,instantmesh_api,hunyuan"
 LABELS={
-    "hunyuan":"Hunyuan3D (local)(Plain Mesh - Fast)",
-    "instantmesh_local":"InstantMesh (local)(LowRes - Slowest)",
     "instantmesh_api":"InstantMesh (API)(HighRes - Fastest)",
-}
+    "instantmesh_local":"InstantMesh (local)(LowRes - Slowest)",
+    "hunyuan":"Hunyuan3D (local)(Plain Mesh - Fast)"
+    }
 # "instantmesh" is the old S2S_MESH value and always meant the HF Space
 ALIASES={"instantmesh":"instantmesh_api","im_api":"instantmesh_api","im_local":"instantmesh_local","hy":"hunyuan"}
 
@@ -57,7 +65,6 @@ def chain():
 
 def choices():
     """What the UI offers: auto (the S2S_MESH order) plus each backend on its own."""
-    from pathlib import Path
     im_dir=os.getenv("S2S_IM_DIR","").strip()
     im_ready=bool(im_dir) and (Path(im_dir)/"run.py").is_file()
     ready={"hunyuan":True,"instantmesh_local":im_ready,"instantmesh_api":True}
@@ -90,10 +97,11 @@ def _load(name):
     return run_instantmesh
 
 
-def make_mesh(image,job_dir,on_stage=None,choice=None):
-    """Returns (mesh_path,backend_name) from the first backend that works.
+def make_mesh(image,job_dir,on_stage=None,choice=None,seed=None):
+    """Returns (mesh_path,backend_name,stats) from the first backend whose file opens and checks out.
 
     choice: a backend name to use alone (no fallback), or None/"auto" for the S2S_MESH order.
+    seed: passed to the backend (None = its own default).
     """
     say=on_stage or(lambda _:None)
     failures=[]
@@ -105,18 +113,21 @@ def make_mesh(image,job_dir,on_stage=None,choice=None):
             say(note+text)
 
         try:
-            path=_load(name)(image,job_dir,on_stage=step)
+            path=_load(name)(image,job_dir,on_stage=step,seed=seed)
+            stats=validate_mesh(path)
         except Unavailable as exc:
             log.info("%s skipped: %s",label,exc)
             failures.append((label,exc))
         except Exception as exc:
+            if cancel.is_set(Path(job_dir).name):
+                raise
             log.warning("%s failed: %s",label,exc)
             failures.append((label,exc))
             note=f"{label} failed. "
         else:
             if failures:
                 log.info("%s was used after %d other backend(s) failed or were skipped",label,len(failures))
-            return path,name
+            return path,name,stats
     if len(failures)==1:
         raise failures[0][1]   # one backend configured: report its own error
     raise AllFailed(failures)

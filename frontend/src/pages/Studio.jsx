@@ -3,10 +3,13 @@ import Icon from '../components/Icon.jsx';
 import SketchCanvas from '../components/SketchCanvas.jsx';
 import UploadPanel from '../components/UploadPanel.jsx';
 import ModelViewer from '../components/ModelViewer.jsx';
-import { generateModel, getBackends } from '../lib/api.js';
+import { cancelJob, generateModel, getBackends } from '../lib/api.js';
 import { log } from '../lib/logger.js';
 
 const BACKEND_NAMES={hunyuan:'Hunyuan3D (local)',instantmesh_local:'InstantMesh (local)',instantmesh_api:'InstantMesh (API)'};
+
+const LOOK={textured:'Textured',vertex_colors:'Vertex colours',shape_only:'Shape only (no colour)'};
+const fmt=(n)=>Number(n).toLocaleString('en-US');
 
 const PROMPT_SUGGESTIONS = ['Product design', 'Matte ceramic', 'Soft rounded edges', 'Studio lighting'];
 
@@ -25,6 +28,9 @@ export default function Studio({ api }) {
   const [output, setOutput] = useState(null);
   const [errorMessage, setErrorMessage] = useState('');
   const [progress,setProgress]=useState(null);
+  const [seed,setSeed]=useState('');
+  const ctlRef=useRef(null);
+  const jobRef=useRef(null);
   const [backends,setBackends]=useState([{id:'auto',label:'Auto (with fallback)',available:true,note:''}]);
   const [backend,setBackend]=useState(()=>{
     try{return localStorage.getItem('backend')||'auto';}catch{return 'auto';}
@@ -73,12 +79,16 @@ export default function Studio({ api }) {
       setProgress(null);
       setApiDetail('Submitting sketch to the generation API');
       const controller = new AbortController();
+      ctlRef.current=controller;
+      jobRef.current=null;
       const result = await generateModel({
         image: imageFile,
         prompt,
         inputType: inputMode,
         backend,
+        seed,
         signal: controller.signal,
+        onJob:(id)=>{jobRef.current=id;},
         onProgress:(job)=>{setProgress(job);setApiDetail(job.label||'Working...');},
       });
 
@@ -89,12 +99,24 @@ export default function Studio({ api }) {
       setApiState('online');
       setApiDetail('Generation API is reachable');
     } catch (error) {
+      if(error?.name==='AbortError'){
+        setGenerationState('idle');
+        setProgress(null);
+        setApiDetail('Generation cancelled');
+        return;
+      }
       log.error('Generation failed',{message:error.message});
       setGenerationState('error');
       setProgress(null);
       setErrorMessage(error.message || 'Something went wrong while generating the model.');
       setApiDetail('The generation request did not complete');
     }
+  };
+
+  const handleCancel=()=>{
+    log.info('Cancel clicked',{jobId:jobRef.current});
+    ctlRef.current?.abort();
+    if(jobRef.current)cancelJob(jobRef.current).catch(()=>{});
   };
 
   const handleDownload = async () => {
@@ -222,6 +244,12 @@ export default function Studio({ api }) {
               <small>{backend==='auto'?`Tries in order: ${backends.find((b)=>b.id==='auto')?.note||'default'}`:'Only this engine runs, no fallback'}</small>
             </div>
 
+            <div className="backend-picker">
+              <label htmlFor="seed-input">Seed</label>
+              <input id="seed-input" type="number" min="0" max="2147483647" placeholder="default (42)" value={seed} onChange={(event)=>setSeed(event.target.value)} disabled={generationState==='generating'} />
+              <small>Same sketch, prompt, seed and engine give (nearly) the same model</small>
+            </div>
+
             <div className="generate-area">
               <button
                 className="generate-button"
@@ -231,6 +259,7 @@ export default function Studio({ api }) {
               >
                 {generationState === 'generating' ? <><span className="button-spinner" /> Reconstructing model...</> : <><Icon name="sparkles" size={18} /> Generate 3D model <Icon name="chevron" size={17} /></>}
               </button>
+              {generationState === 'generating' && <button className="cancel-button" type="button" onClick={handleCancel}>Cancel</button>}
               <div className="generate-caption"><Icon name="file" size={13} /> Your sketch stays the source of truth <span>·</span> Prompt is optional</div>
             </div>
           </section>
@@ -252,7 +281,7 @@ export default function Studio({ api }) {
                 <span className="file-icon"><Icon name="cube" size={17} /></span>
                 <div>
                   <strong>{output?.filename || 'No model generated yet'}</strong>
-                  <span>{output ? `3D asset · ${formatLabel(output.format)} format${output.backend?` · ${BACKEND_NAMES[output.backend]||output.backend}`:''}` : 'Your export will be listed here'}</span>
+                  <span>{output ? `3D asset · ${formatLabel(output.format)} format${output.backend?` · ${BACKEND_NAMES[output.backend]||output.backend}`:''}${output.meshStats?` · ${fmt(output.meshStats.faces)} faces`:''}` : 'Your export will be listed here'}</span>
                 </div>
               </div>
               <div className="output-actions">
@@ -265,10 +294,10 @@ export default function Studio({ api }) {
 
             <div className="output-specs">
               <div><span className="spec-icon"><Icon name="cube" size={15} /></span><span><strong>Real geometry</strong><small>Not a flat image</small></span></div>
-              <div><span className="spec-icon"><Icon name="sparkles" size={15} /></span><span><strong>Surface detail</strong><small>Materials & textures</small></span></div>
+              <div><span className="spec-icon"><Icon name="sparkles" size={15} /></span><span><strong>Surface detail</strong><small>{output?.meshStats?(LOOK[output.meshStats.look]||'Unknown'):'Depends on the 3D engine'}</small></span></div>
               <div><span className="spec-icon"><Icon name="download" size={15} /></span><span><strong>Exportable</strong><small>GLB / OBJ supported</small></span></div>
             </div>
-            {output?.jobId && <div className="job-reference">JOB ID <code>{output.jobId}</code></div>}
+            {output?.jobId && <div className="job-reference">JOB ID <code>{output.jobId}</code>{output.seed!=null && <> · SEED <code>{output.seed}</code></>}</div>}
           </section>
         </section>
       </main>

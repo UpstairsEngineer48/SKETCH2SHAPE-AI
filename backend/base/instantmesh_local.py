@@ -15,7 +15,7 @@ Env:
   S2S_IM_CONFIG   config relative to S2S_IM_DIR (default configs/instant-mesh-large.yaml,
                   configs/instant-mesh-base.yaml is the lighter one)
   S2S_MVS_STEPS   multi-view steps, same variable as the API route (default 50)
-  S2S_IM_SEED     default 42
+  S2S_IM_SEED     default S2S_SEED, then 42
 """
 
 import logging
@@ -25,6 +25,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from base import cancel
 from base.mesh import Unavailable
 
 log=logging.getLogger(__name__)
@@ -33,7 +34,7 @@ IM_DIR=os.getenv("S2S_IM_DIR","").strip()
 PY=os.getenv("S2S_IM_PYTHON") or sys.executable
 CONFIG=os.getenv("S2S_IM_CONFIG","configs/instant-mesh-large.yaml")
 STEPS=int(os.getenv("S2S_MVS_STEPS","50"))
-SEED=int(os.getenv("S2S_IM_SEED","42"))
+SEED=int(os.getenv("S2S_IM_SEED",os.getenv("S2S_SEED","42")))
 CONVERT=Path(__file__).with_name("im_to_glb.py")
 
 # lines printed by run.py -> label for the UI
@@ -51,10 +52,12 @@ def _root():
     return root
 
 
-def _run(cmd,cwd,on_line):
+def _run(cmd,cwd,on_line,job=None):
     """Runs a command, echoes its output to the backend terminal. Returns (exit code, last lines)."""
     env=dict(os.environ,PYTHONUNBUFFERED="1",PYTHONIOENCODING="utf-8")
     proc=subprocess.Popen(cmd,cwd=cwd,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,encoding="utf-8",errors="replace",env=env)
+    if job:
+        cancel.track(job,proc)
     tail=[]
     for line in proc.stdout:
         print(line,end="",flush=True)
@@ -65,7 +68,7 @@ def _run(cmd,cwd,on_line):
     return proc.returncode,"".join(tail)[-600:]
 
 
-def run_instantmesh_local(input_image_path,output_dir,on_stage=None):
+def run_instantmesh_local(input_image_path,output_dir,on_stage=None,seed=None):
     """Returns the path of the saved mesh. on_stage(text) updates the UI label."""
     say=on_stage or(lambda _:None)
     root=_root()
@@ -80,14 +83,14 @@ def run_instantmesh_local(input_image_path,output_dir,on_stage=None):
 
     say("Starting InstantMesh locally (first run downloads the models, see the backend terminal)")
     # --no_rembg: the cutout is already done (same input the API route gets)
-    cmd=[PY,"-u","run.py",CONFIG,str(src),"--output_path",str(work/"out"),"--diffusion_steps",str(STEPS),"--seed",str(SEED),"--no_rembg"]
+    cmd=[PY,"-u","run.py",CONFIG,str(src),"--output_path",str(work/"out"),"--diffusion_steps",str(STEPS),"--seed",str(SEED if seed is None else seed),"--no_rembg"]
 
     def on_line(line):
         for key,text in STAGES:
             if key in line:
                 say(text)
 
-    code,tail=_run(cmd,root,on_line)
+    code,tail=_run(cmd,root,on_line,out.name)
     obj=work/"out"/Path(CONFIG).stem/"meshes"/"input.obj"
     if code!=0 or not obj.exists():
         raise RuntimeError("InstantMesh (local) failed: "+tail)

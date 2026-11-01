@@ -5,7 +5,7 @@ Runs inside the Hunyuan3D environment (started by hunyuan.py).
   python hy_worker.py <rgba_image> <out.glb>
 
 Shape only (no texture), so nothing has to be compiled.
-Env (all optional): S2S_HY_MODEL, S2S_HY_SUB, S2S_HY_STEPS, S2S_HY_OCT, S2S_HY_CHUNKS, S2S_HY_SEED
+Env (all optional): S2S_HY_MODEL, S2S_HY_SUB, S2S_HY_STEPS, S2S_HY_OCT, S2S_HY_CHUNKS, S2S_HY_SEED (falls back to S2S_SEED, then 42)
 """
 
 import os
@@ -20,7 +20,7 @@ SUB=os.getenv("S2S_HY_SUB","hunyuan3d-dit-v2-mini")
 STEPS=int(os.getenv("S2S_HY_STEPS","30"))
 OCT=int(os.getenv("S2S_HY_OCT","256"))        # mesh detail; lower = less VRAM
 CHUNKS=int(os.getenv("S2S_HY_CHUNKS","8000")) # smaller chunks = lower VRAM peak
-SEED=int(os.getenv("S2S_HY_SEED","42"))
+SEED=int(os.getenv("S2S_HY_SEED",os.getenv("S2S_SEED","42")))
 
 
 def main(src,dst):

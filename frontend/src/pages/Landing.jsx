@@ -20,7 +20,7 @@ const STEPS = [
 
 const FEATURES = [
   { icon: 'pen', title: 'Draw or upload', text: 'Sketch on the built-in canvas with brush, eraser and reset, or drop in an existing image.' },
-  { icon: 'sparkles', title: 'Prompt is optional', text: 'Add material, colour or style if you like. A sketch alone is always enough to generate.' },
+  { icon: 'sparkles', title: 'Prompt is optional', text: 'Add a colour or style hint if you like. It guides the render step, and a sketch alone is always enough.' },
   { icon: 'layers', title: 'Sketch stays in charge', text: 'ControlNet follows your strokes, so the result is your object, not whatever the prompt imagines.' },
   { icon: 'branch', title: 'Three 3D engines', text: 'Hunyuan3D, local InstantMesh, or the InstantMesh API. Auto mode falls back to the next one on failure.' },
   { icon: 'cube', title: 'Real geometry', text: 'The output is a mesh with depth and volume, not a flat image or a textured plane.' },

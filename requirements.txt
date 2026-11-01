@@ -18,5 +18,11 @@ accelerate>=0.29
 peft>=0.10
 safetensors
 
+# Mesh check + clean-up (base/validate.py, base/post.py)
+trimesh>=4.0
+scipy
+# optional: decimates big shape-only meshes (otherwise that step is skipped with a warning)
+# fast-simplification
+
 # InstantMesh via the HuggingFace Space API
 gradio_client>=0.16

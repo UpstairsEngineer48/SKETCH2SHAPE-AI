@@ -17,13 +17,15 @@ import subprocess
 import sys
 from pathlib import Path
 
+from base import cancel
+
 log=logging.getLogger(__name__)
 
 PY=os.getenv("S2S_HY_PYTHON") or sys.executable
 WORKER=Path(__file__).with_name("hy_worker.py")
 
 
-def run_hunyuan(input_image_path,output_dir,on_stage=None):
+def run_hunyuan(input_image_path,output_dir,on_stage=None,seed=None):
     """Returns the path of the saved model.glb. on_stage(text) updates the UI label."""
     say=on_stage or(lambda _:None)
     out=Path(output_dir)
@@ -32,7 +34,10 @@ def run_hunyuan(input_image_path,output_dir,on_stage=None):
 
     say("Generating the 3D shape (first run downloads the model, see the backend terminal)")
     env=dict(os.environ,PYTHONUNBUFFERED="1",PYTHONIOENCODING="utf-8")
+    if seed is not None:
+        env["S2S_HY_SEED"]=str(seed)
     proc=subprocess.Popen([PY,"-u",str(WORKER),str(input_image_path),str(target)],stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,encoding="utf-8",errors="replace",env=env)
+    cancel.track(out.name,proc)
     tail=[]
     for line in proc.stdout:
         print(line,end="",flush=True)

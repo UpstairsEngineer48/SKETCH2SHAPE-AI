@@ -3,7 +3,8 @@ app.py
 Flask backend for Sketch2Shape AI.
 
   POST /api/generate            -> 202 {job_id}  (starts a background job)
-  GET  /api/jobs/<job_id>       -> status, progress text, model_url when done
+  GET  /api/jobs/<job_id>       -> status, progress text, model_url + mesh_stats when done
+  POST /api/jobs/<job_id>/cancel -> stops the job (status becomes "cancelled")
   GET  /api/files/<job_id>/<n>  -> generated files (model.glb, rendered.png ...)
   GET  /api/health              -> model/GPU status for the UI indicator
   POST /api/client-log          -> browser log events, written to logs/frontend.log
@@ -12,9 +13,11 @@ Every route also works WITHOUT the /api prefix, so it is correct whether or
 not the Vite dev proxy strips "/api".
 
 Pipeline per job:
-  preprocessing -> controlnet (SD1.5) -> background_removal -> mesh
+  preprocessing -> controlnet (SD1.5) -> background_removal -> mesh -> validate -> clean-up
   mesh = tried in order until one works (S2S_MESH, see base/mesh.py):
-         Hunyuan3D-2mini (local) -> InstantMesh (local) -> InstantMesh (HF Space API)
+         InstantMesh (local) -> InstantMesh (HF Space API) -> Hunyuan3D-2mini (local, shape only)
+  validate = the exported file is opened and checked (base/validate.py)
+  clean-up = drop specks, centre, unit scale, decimate (base/post.py, S2S_POST=0 to skip)
 """
 
 import json
@@ -31,9 +34,10 @@ from flask import Blueprint,Flask,jsonify,request,send_from_directory
 from flask_cors import CORS
 from PIL import Image
 
-from base import controlnet,logs
+from base import cancel,controlnet,logs
 from base.export import error_response
 from base.mesh import AllFailed,Unavailable,chain,choices,make_mesh,resolve
+from base.post import clean_mesh
 
 logs.setup()
 log=logging.getLogger("sketch2shape")
@@ -49,6 +53,7 @@ OUTPUTS.mkdir(parents=True,exist_ok=True)
 TOTAL_STEPS=4
 PHOTO_DIRECT=os.getenv("S2S_PHOTO_DIRECT","1")=="1"   # photos skip the sketch->image model
 JOB_TTL_SECONDS=6*3600
+SEED=int(os.getenv("S2S_SEED","42"))   # default seed; a request can send its own
 MIME={".glb":"model/gltf-binary",".obj":"text/plain",".png":"image/png"}
 
 JOBS={}
@@ -103,7 +108,7 @@ def _cleanup_old_jobs():
             del JOBS[jid]
 
 
-def _run_job(job_id,sketch_path,prompt,input_type="",backend="auto"):
+def _run_job(job_id,sketch_path,prompt,input_type="",backend="auto",seed=SEED):
     # imported here so Flask starts instantly (rembg/onnxruntime are heavy)
     from base.preprocessing import preprocess_sketch
     from base.background_removal import remove_background
@@ -111,60 +116,79 @@ def _run_job(job_id,sketch_path,prompt,input_type="",backend="auto"):
     job_dir=OUTPUTS/job_id
     _update(job_id,status="queued",label="Waiting for the previous job to finish")
     log.info("Job %s | queued, waiting for the GPU lock",job_id)
-    with RUN_LOCK:
-        job_handler=logs.attach_job_log(job_id)   # only this thread's records, only while it holds the lock
-        started=time.time()
-        t=time.time()
+    while not RUN_LOCK.acquire(timeout=1):
+        if cancel.is_set(job_id):   # cancelled while still waiting in the queue
+            _update(job_id,status="cancelled",label="Cancelled")
+            log.info("Job %s | cancelled while queued",job_id)
+            cancel.done(job_id)
+            return
+    job_handler=logs.attach_job_log(job_id)   # only this thread's records, only while it holds the lock
+    started=time.time()
+    t=time.time()
 
-        def lap(stage):
-            nonlocal t
-            now=time.time()
-            log.info("Job %s | stage done: %s (%.1fs)",job_id,stage,now-t)
-            t=now
-        try:
-            _update(job_id,status="running",step=1,label="Reading your sketch")
-            # the canvas tab is always a drawing; uploads are classified automatically
-            force="sketch" if input_type=="draw" else None
-            control,kind=preprocess_sketch(sketch_path,job_dir/"control.png",force_kind=force)
-            log.info("Job %s | input_type=%s, treated as %s",job_id,input_type or "?",kind)
-            lap("preprocessing")
-            (job_dir/"job.json").write_text(json.dumps({"prompt":prompt,"kind":kind}),encoding="utf-8")
+    def lap(stage):
+        nonlocal t
+        now=time.time()
+        log.info("Job %s | stage done: %s (%.1fs)",job_id,stage,now-t)
+        t=now
+        cancel.check(job_id)
+    try:
+        cancel.check(job_id)
+        _update(job_id,status="running",step=1,label="Reading your sketch")
+        # the canvas tab is always a drawing; uploads are classified automatically
+        force="sketch" if input_type=="draw" else None
+        control,kind=preprocess_sketch(sketch_path,job_dir/"control.png",force_kind=force)
+        log.info("Job %s | input_type=%s, treated as %s, seed=%d",job_id,input_type or "?",kind,seed)
+        lap("preprocessing")
+        (job_dir/"job.json").write_text(json.dumps({"prompt":prompt,"kind":kind,"seed":seed}),encoding="utf-8")
 
-            if kind=="photo" and PHOTO_DIRECT:
-                # a photo is already a real picture of the object: skip the
-                # sketch->image model (it only degrades it) and go to the cutout
-                _update(job_id,step=2,label="Photo detected, using it directly")
-                rendered=job_dir/"rendered.png"
-                from base.preprocessing import load_photo
-                load_photo(sketch_path).save(rendered)   # original resolution, no padding
-            else:
-                loaded=controlnet.status()["loaded"]
-                _update(job_id,step=2,label="Rendering the object from your sketch" if loaded
-                        else "Loading the image model (first run downloads several GB)")
-                rendered=controlnet.sketch_to_image(control,prompt,job_dir/"rendered.png",kind=kind)
-            lap("render")
-            _update(job_id,preview_url=f"/files/{job_id}/rendered.png")
+        if kind=="photo" and PHOTO_DIRECT:
+            # a photo is already a real picture of the object: skip the
+            # sketch->image model (it only degrades it) and go to the cutout
+            _update(job_id,step=2,label="Photo detected, using it directly")
+            rendered=job_dir/"rendered.png"
+            from base.preprocessing import load_photo
+            load_photo(sketch_path).save(rendered)   # original resolution, no padding
+        else:
+            loaded=controlnet.status()["loaded"]
+            _update(job_id,step=2,label="Rendering the object from your sketch" if loaded
+                    else "Loading the image model (first run downloads several GB)")
+            rendered=controlnet.sketch_to_image(control,prompt,job_dir/"rendered.png",seed=seed,kind=kind)
+        lap("render")
+        _update(job_id,preview_url=f"/files/{job_id}/rendered.png")
 
-            _update(job_id,step=3,label="Cutting out the object")
-            cutout=remove_background(rendered,job_dir/"foreground.png")
-            lap("background removal")
+        _update(job_id,step=3,label="Cutting out the object")
+        cutout=remove_background(rendered,job_dir/"foreground.png")
+        lap("background removal")
 
-            _update(job_id,step=4,label="Building the 3D mesh")
-            controlnet.park()   # free the GPU for the mesh model
-            mesh,used=make_mesh(cutout,job_dir,on_stage=lambda text:(log.info("Job %s | %s",job_id,text),_update(job_id,label=text)),choice=backend)
-            lap("mesh")
+        _update(job_id,step=4,label="Building the 3D mesh")
+        controlnet.park()   # free the GPU for the mesh model
+        mesh,used,stats=make_mesh(cutout,job_dir,on_stage=lambda text:(log.info("Job %s | %s",job_id,text),_update(job_id,label=text)),choice=backend,seed=seed)
+        lap("mesh")
 
-            _update(job_id,status="done",label="Done",
-                    model_url=f"/files/{job_id}/{mesh.name}",
-                    format=mesh.suffix.lstrip("."),
-                    backend=used,
-                    filename=f"sketch2shape_{job_id}{mesh.suffix}")
-            log.info("Job %s | finished in %.0fs (mesh: %s)",job_id,time.time()-started,used)
-        except Exception as exc:
+        _update(job_id,label="Checking and tidying the mesh")
+        post=clean_mesh(mesh)   # None = skipped or failed, the raw mesh is kept
+        stats=post or stats
+        lap("validate + clean-up")
+        _update(job_id,status="done",label="Done",
+                model_url=f"/files/{job_id}/{mesh.name}",
+                format=mesh.suffix.lstrip("."),
+                backend=used,
+                seed=seed,
+                mesh_stats=stats,
+                filename=f"sketch2shape_{job_id}{mesh.suffix}")
+        log.info("Job %s | finished in %.0fs (mesh: %s, %d faces, look: %s)",job_id,time.time()-started,used,stats["faces"],stats["look"])
+    except Exception as exc:
+        if cancel.is_set(job_id):
+            log.info("Job %s | cancelled after %.0fs",job_id,time.time()-started)
+            _update(job_id,status="cancelled",label="Cancelled")
+        else:
             log.exception("Job %s | failed after %.0fs",job_id,time.time()-started)
             _update(job_id,status="error",error=_friendly(exc))
-        finally:
-            logs.detach_job_log(job_handler)
+    finally:
+        logs.detach_job_log(job_handler)
+        cancel.done(job_id)
+        RUN_LOCK.release()
 
 
 # -- request logging --------------------------------------------------------
@@ -224,6 +248,12 @@ def generate():
     input_type=(request.form.get("input_type") or "").strip().lower()
     backend=(request.form.get("backend") or "auto").strip().lower()
     try:
+        seed=int((request.form.get("seed") or "").strip() or SEED)
+    except ValueError:
+        return error_response("Seed must be a whole number.",400)
+    if not 0<=seed<=2**31-1:
+        return error_response("Seed must be between 0 and 2147483647.",400)
+    try:
         resolve(backend)
     except ValueError as exc:
         return error_response(str(exc),400)
@@ -245,8 +275,9 @@ def generate():
     with JOBS_LOCK:
         JOBS[job_id]={"job_id":job_id,"status":"queued","step":0,"total_steps":TOTAL_STEPS,
                       "label":"Queued","created":now,"updated":now}
-    log.info("Job %s | prompt=%r | 3D backend=%s",job_id,prompt,backend)
-    threading.Thread(target=_run_job,args=(job_id,sketch_path,prompt,input_type,backend),daemon=True).start()
+    log.info("Job %s | prompt=%r | 3D backend=%s | seed=%d",job_id,prompt,backend,seed)
+    cancel.new(job_id)
+    threading.Thread(target=_run_job,args=(job_id,sketch_path,prompt,input_type,backend,seed),daemon=True).start()
     return jsonify({"job_id":job_id,"status":"queued"}),202
 
 
@@ -259,6 +290,21 @@ def job_status(job_id):
         return error_response("Unknown job. The server may have restarted.",404)
     data["elapsed"]=round(time.time()-data["created"])
     return jsonify(data)
+
+
+@bp.post("/jobs/<job_id>/cancel")
+def job_cancel(job_id):
+    with JOBS_LOCK:
+        job=JOBS.get(job_id)
+        status=job["status"] if job else None
+    if status is None:
+        return error_response("Unknown job. The server may have restarted.",404)
+    if status in("done","error","cancelled"):
+        return jsonify({"job_id":job_id,"status":status})   # nothing left to stop
+    cancel.request(job_id)
+    _update(job_id,label="Cancelling...")
+    log.info("Job %s | cancel requested",job_id)
+    return jsonify({"job_id":job_id,"status":"cancelling"}),202
 
 
 @bp.post("/client-log")
@@ -294,8 +340,8 @@ log.info("Logs: %s (backend.log, frontend.log, jobs/<id>.log)",logs.LOG_DIR)
 def _preload():
     try:
         controlnet.load()
-    except Exception:
-        pass   # reported through /health; the next job retries
+    except Exception as exc:
+        log.warning("Model preload failed, the next job retries it: %s",exc)   # also reported through /health
 
 
 threading.Thread(target=_preload,daemon=True).start()

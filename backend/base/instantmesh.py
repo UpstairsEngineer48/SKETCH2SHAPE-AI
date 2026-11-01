@@ -22,6 +22,7 @@ log=logging.getLogger(__name__)
 
 SPACE_ID=os.getenv("S2S_INSTANTMESH_SPACE","TencentARC/InstantMesh")
 DEFAULT_STEPS=int(os.getenv("S2S_MVS_STEPS","50"))   # Space default is 75; 30-75 allowed
+DEFAULT_SEED=int(os.getenv("S2S_IM_SEED",os.getenv("S2S_SEED","42")))
 
 
 def _make_client():
@@ -67,7 +68,7 @@ def _as_file(value):
     return value
 
 
-def run_instantmesh(input_image_path,output_dir,sample_steps=None,sample_seed=42,on_stage=None):
+def run_instantmesh(input_image_path,output_dir,sample_steps=None,seed=None,on_stage=None):
     """
     Run InstantMesh on one image.
 
@@ -76,6 +77,7 @@ def run_instantmesh(input_image_path,output_dir,sample_steps=None,sample_seed=42
     """
     say=on_stage or(lambda _:None)
     steps=sample_steps or DEFAULT_STEPS
+    sample_seed=DEFAULT_SEED if seed is None else seed
     output_dir=Path(output_dir)
     output_dir.mkdir(parents=True,exist_ok=True)
 
