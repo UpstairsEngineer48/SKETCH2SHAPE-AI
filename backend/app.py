@@ -6,13 +6,15 @@ Flask backend for Sketch2Shape AI.
   GET  /api/jobs/<job_id>       -> status, progress text, model_url when done
   GET  /api/files/<job_id>/<n>  -> generated files (model.glb, rendered.png ...)
   GET  /api/health              -> model/GPU status for the UI indicator
+  POST /api/client-log          -> browser log events, written to logs/frontend.log
 
 Every route also works WITHOUT the /api prefix, so it is correct whether or
 not the Vite dev proxy strips "/api".
 
 Pipeline per job:
   preprocessing -> controlnet (SD1.5) -> background_removal -> mesh
-  mesh = Hunyuan3D-2mini (local, default) or InstantMesh (HF Space); set S2S_MESH
+  mesh = tried in order until one works (S2S_MESH, see base/mesh.py):
+         Hunyuan3D-2mini (local) -> InstantMesh (local) -> InstantMesh (HF Space API)
 """
 
 import json
@@ -29,11 +31,13 @@ from flask import Blueprint,Flask,jsonify,request,send_from_directory
 from flask_cors import CORS
 from PIL import Image
 
-from base import controlnet
+from base import controlnet,logs
 from base.export import error_response
+from base.mesh import AllFailed,Unavailable,chain,choices,make_mesh,resolve
 
-logging.basicConfig(level=logging.INFO,format="%(asctime)s %(levelname)s %(message)s")
+logs.setup()
 log=logging.getLogger("sketch2shape")
+client_log=logging.getLogger("sketch2shape.client")
 
 app=Flask(__name__)
 CORS(app)
@@ -42,7 +46,6 @@ app.config["MAX_CONTENT_LENGTH"]=20*1024*1024
 OUTPUTS=Path(__file__).parent/"base"/"outputs"
 OUTPUTS.mkdir(parents=True,exist_ok=True)
 
-MESH=os.getenv("S2S_MESH","hunyuan").lower()   # hunyuan | instantmesh
 TOTAL_STEPS=4
 PHOTO_DIRECT=os.getenv("S2S_PHOTO_DIRECT","1")=="1"   # photos skip the sketch->image model
 JOB_TTL_SECONDS=6*3600
@@ -65,6 +68,14 @@ def _update(job_id,**fields):
 
 def _friendly(exc):
     """Turn library exceptions into messages a user can act on."""
+    if isinstance(exc,AllFailed):
+        parts=[]
+        for label,err in exc.failures:
+            msg=" ".join(_friendly(err).split())   # one line; the real error is at the end of a traceback
+            parts.append(f"{label}: {msg if len(msg)<=220 else '...'+msg[-220:]}")
+        return " | ".join(parts)
+    if isinstance(exc,Unavailable):
+        return str(exc)
     text=f"{type(exc).__name__}: {exc}"
     low=text.lower()
     if isinstance(exc,ValueError):
@@ -75,7 +86,8 @@ def _friendly(exc):
         return ("The free Hugging Face GPU quota for InstantMesh is used up. "
                 "Set HF_TOKEN (a free access token) before starting the backend, or try again later.")
     if "out of memory" in low:
-        return "The GPU ran out of memory. Try S2S_LOW_VRAM=1, or lower S2S_HY_OCT (e.g. 192)."
+        return ("The GPU ran out of memory. Try S2S_LOW_VRAM=1; for Hunyuan lower S2S_HY_OCT (e.g. 192); "
+                "for local InstantMesh set S2S_IM_CONFIG=configs/instant-mesh-base.yaml.")
     if any(w in low for w in("connecterror","connection","timeout","name resolution","max retries")):
         return "Could not reach Hugging Face. Check your internet connection (models download on first use)."
     return text[:400]
@@ -91,25 +103,31 @@ def _cleanup_old_jobs():
             del JOBS[jid]
 
 
-def _run_job(job_id,sketch_path,prompt,input_type=""):
+def _run_job(job_id,sketch_path,prompt,input_type="",backend="auto"):
     # imported here so Flask starts instantly (rembg/onnxruntime are heavy)
     from base.preprocessing import preprocess_sketch
     from base.background_removal import remove_background
-    if MESH=="instantmesh":
-        from base.instantmesh import run_instantmesh as make_mesh
-    else:
-        from base.hunyuan import run_hunyuan as make_mesh
 
     job_dir=OUTPUTS/job_id
     _update(job_id,status="queued",label="Waiting for the previous job to finish")
+    log.info("Job %s | queued, waiting for the GPU lock",job_id)
     with RUN_LOCK:
+        job_handler=logs.attach_job_log(job_id)   # only this thread's records, only while it holds the lock
         started=time.time()
+        t=time.time()
+
+        def lap(stage):
+            nonlocal t
+            now=time.time()
+            log.info("Job %s | stage done: %s (%.1fs)",job_id,stage,now-t)
+            t=now
         try:
             _update(job_id,status="running",step=1,label="Reading your sketch")
             # the canvas tab is always a drawing; uploads are classified automatically
             force="sketch" if input_type=="draw" else None
             control,kind=preprocess_sketch(sketch_path,job_dir/"control.png",force_kind=force)
             log.info("Job %s | input_type=%s, treated as %s",job_id,input_type or "?",kind)
+            lap("preprocessing")
             (job_dir/"job.json").write_text(json.dumps({"prompt":prompt,"kind":kind}),encoding="utf-8")
 
             if kind=="photo" and PHOTO_DIRECT:
@@ -124,24 +142,56 @@ def _run_job(job_id,sketch_path,prompt,input_type=""):
                 _update(job_id,step=2,label="Rendering the object from your sketch" if loaded
                         else "Loading the image model (first run downloads several GB)")
                 rendered=controlnet.sketch_to_image(control,prompt,job_dir/"rendered.png",kind=kind)
-            log.info("Job %s | rendered in %.0fs",job_id,time.time()-started)
+            lap("render")
             _update(job_id,preview_url=f"/files/{job_id}/rendered.png")
 
             _update(job_id,step=3,label="Cutting out the object")
             cutout=remove_background(rendered,job_dir/"foreground.png")
+            lap("background removal")
 
             _update(job_id,step=4,label="Building the 3D mesh")
             controlnet.park()   # free the GPU for the mesh model
-            mesh=make_mesh(cutout,job_dir,on_stage=lambda t:_update(job_id,label=t))
+            mesh,used=make_mesh(cutout,job_dir,on_stage=lambda text:(log.info("Job %s | %s",job_id,text),_update(job_id,label=text)),choice=backend)
+            lap("mesh")
 
             _update(job_id,status="done",label="Done",
                     model_url=f"/files/{job_id}/{mesh.name}",
                     format=mesh.suffix.lstrip("."),
+                    backend=used,
                     filename=f"sketch2shape_{job_id}{mesh.suffix}")
-            log.info("Job %s | finished in %.0fs",job_id,time.time()-started)
+            log.info("Job %s | finished in %.0fs (mesh: %s)",job_id,time.time()-started,used)
         except Exception as exc:
-            log.exception("Job %s | failed",job_id)
+            log.exception("Job %s | failed after %.0fs",job_id,time.time()-started)
             _update(job_id,status="error",error=_friendly(exc))
+        finally:
+            logs.detach_job_log(job_handler)
+
+
+# -- request logging --------------------------------------------------------
+
+QUIET_ROUTES=("/health","/jobs/","/client-log","/files/","/backends")   # polled constantly: only log when they fail
+
+
+@app.before_request
+def _req_start():
+    request._t0=time.time()
+
+
+@app.after_request
+def _req_end(resp):
+    ms=(time.time()-getattr(request,"_t0",time.time()))*1000
+    path=request.path[4:] if request.path.startswith("/api/") else request.path
+    quiet=path.startswith(QUIET_ROUTES)
+    line=("%s %s -> %d (%.0f ms)",request.method,request.path,resp.status_code,ms)
+    if resp.status_code>=500:
+        log.error(*line)
+    elif resp.status_code>=400:
+        log.warning(*line)
+    elif quiet:
+        log.debug(*line)
+    else:
+        log.info(*line)
+    return resp
 
 
 # -- routes -----------------------------------------------------------------
@@ -159,6 +209,11 @@ def health():
     })
 
 
+@bp.get("/backends")
+def backends():
+    return jsonify({"backends":choices()})
+
+
 @bp.post("/generate")
 def generate():
     upload=request.files.get("image")
@@ -167,6 +222,11 @@ def generate():
 
     prompt=(request.form.get("prompt") or "").strip()[:400] or "a clean 3D object"
     input_type=(request.form.get("input_type") or "").strip().lower()
+    backend=(request.form.get("backend") or "auto").strip().lower()
+    try:
+        resolve(backend)
+    except ValueError as exc:
+        return error_response(str(exc),400)
     job_id=uuid.uuid4().hex[:12]
     job_dir=OUTPUTS/job_id
     job_dir.mkdir(parents=True)
@@ -185,8 +245,8 @@ def generate():
     with JOBS_LOCK:
         JOBS[job_id]={"job_id":job_id,"status":"queued","step":0,"total_steps":TOTAL_STEPS,
                       "label":"Queued","created":now,"updated":now}
-    log.info("Job %s | prompt=%r",job_id,prompt)
-    threading.Thread(target=_run_job,args=(job_id,sketch_path,prompt,input_type),daemon=True).start()
+    log.info("Job %s | prompt=%r | 3D backend=%s",job_id,prompt,backend)
+    threading.Thread(target=_run_job,args=(job_id,sketch_path,prompt,input_type,backend),daemon=True).start()
     return jsonify({"job_id":job_id,"status":"queued"}),202
 
 
@@ -201,6 +261,20 @@ def job_status(job_id):
     return jsonify(data)
 
 
+@bp.post("/client-log")
+def client_log_route():
+    """Receives batched browser events: {session, events:[{t,level,msg,data}]}. Always 204."""
+    body=request.get_json(silent=True,force=True) or {}
+    session=str(body.get("session",""))[:12] or "?"
+    for ev in(body.get("events") or[])[:100]:
+        level=str(ev.get("level","info")).upper()
+        level=level if level in("DEBUG","INFO","WARNING","ERROR") else "INFO"
+        data=ev.get("data")
+        extra=f" | {json.dumps(data,default=str)[:800]}" if data else ""
+        client_log.log(getattr(logging,level),"%-7s s=%s %s%s",level,session,str(ev.get("msg",""))[:400],extra)
+    return "",204
+
+
 @bp.get("/files/<job_id>/<path:name>")
 def files(job_id,name):
     if not re.fullmatch(r"[0-9a-f]{12}",job_id):
@@ -213,6 +287,9 @@ app.register_blueprint(bp,name="api_root")
 
 
 # -- startup ----------------------------------------------------------------
+
+log.info("Mesh backends, in the order they are tried: %s",", ".join(chain()))
+log.info("Logs: %s (backend.log, frontend.log, jobs/<id>.log)",logs.LOG_DIR)
 
 def _preload():
     try:

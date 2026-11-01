@@ -36,6 +36,7 @@ def run_hunyuan(input_image_path,output_dir,on_stage=None):
     tail=[]
     for line in proc.stdout:
         print(line,end="",flush=True)
+        log.debug("[hy] %s",line.rstrip())
         tail=(tail+[line[:200]+"\n"])[-15:]
     proc.wait()
     if proc.returncode!=0 or not target.exists():

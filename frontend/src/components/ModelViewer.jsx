@@ -9,6 +9,82 @@ export default function ModelViewer({ modelUrl, format, isGenerating, statusText
   const mountRef = useRef(null);
   const [loadError, setLoadError] = useState('');
   const [loaded, setLoaded] = useState(false);
+  const shellRef = useRef(null);
+  const pseudoFullscreenRef = useRef(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      const activeElement = document.fullscreenElement || document.webkitFullscreenElement;
+      const isNativeActive = activeElement === shellRef.current;
+      if (!isNativeActive && !pseudoFullscreenRef.current) {
+        setIsFullscreen(false);
+        document.body.style.overflow = '';
+      } else if (isNativeActive) {
+        setIsFullscreen(true);
+      }
+    };
+
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape' && pseudoFullscreenRef.current) {
+        pseudoFullscreenRef.current = false;
+        setIsFullscreen(false);
+        document.body.style.overflow = '';
+      }
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
+      window.removeEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = '';
+    };
+  }, []);
+
+  const toggleFullscreen = async () => {
+    const shell = shellRef.current;
+    if (!shell) return;
+
+    const activeElement = document.fullscreenElement || document.webkitFullscreenElement;
+    if (activeElement === shell) {
+      try {
+        if (document.exitFullscreen) {
+          await document.exitFullscreen();
+        } else if (document.webkitExitFullscreen) {
+          document.webkitExitFullscreen();
+        }
+      } catch {
+        setIsFullscreen(false);
+      }
+      return;
+    }
+
+    if (pseudoFullscreenRef.current) {
+      pseudoFullscreenRef.current = false;
+      setIsFullscreen(false);
+      document.body.style.overflow = '';
+      return;
+    }
+
+    const requestMethod = shell.requestFullscreen || shell.webkitRequestFullscreen;
+    if (requestMethod) {
+      try {
+        await requestMethod.call(shell);
+        setIsFullscreen(true);
+        return;
+      } catch {
+        // Fallback to CSS viewport fullscreen when blocked by iframe or browser permissions
+      }
+    }
+
+    pseudoFullscreenRef.current = true;
+    setIsFullscreen(true);
+    document.body.style.overflow = 'hidden';
+  };
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -81,7 +157,7 @@ export default function ModelViewer({ modelUrl, format, isGenerating, statusText
     );
     orbitRing.rotation.x = Math.PI * 0.37;
     placeholder.add(orbitRing);
-    placeholder.position.y = 0.08;
+    placeholder.position.y = 0.32;
     scene.add(placeholder);
 
     const resize = () => {
@@ -180,7 +256,7 @@ export default function ModelViewer({ modelUrl, format, isGenerating, statusText
   }, [modelUrl, format]);
 
   return (
-    <div className="viewer-shell">
+    <div className={`viewer-shell ${isFullscreen ? 'is-fullscreen' : ''}`} ref={shellRef}>
       <div className="viewer-canvas" ref={mountRef} />
       {!modelUrl && !isGenerating && (
         <div className="viewer-empty-state">
@@ -201,7 +277,20 @@ export default function ModelViewer({ modelUrl, format, isGenerating, statusText
       )}
       <div className="viewer-overlay-top">
         <span className="scene-label"><span className="scene-label-dot" /> {modelUrl && loaded ? 'MODEL LOADED' : '3D VIEWPORT'}</span>
-        <span className="scene-label subtle-label">PERSPECTIVE <span>·</span> ORBIT ENABLED</span>
+        <div className="viewer-top-actions">
+          <span className="scene-label subtle-label">PERSPECTIVE <span>·</span> ORBIT ENABLED</span>
+          <button
+            type="button"
+            className="viewer-fullscreen-btn"
+            onClick={toggleFullscreen}
+            aria-label={isFullscreen ? 'Exit full screen' : 'Expand 3D viewer to full screen'}
+            aria-pressed={isFullscreen}
+            title={isFullscreen ? 'Exit full screen (Esc)' : 'Expand to full screen'}
+          >
+            <Icon name={isFullscreen ? 'minimize' : 'maximize'} size={14} />
+            <span>{isFullscreen ? 'EXIT FULLSCREEN' : 'FULLSCREEN'}</span>
+          </button>
+        </div>
       </div>
       <div className="viewer-overlay-bottom">
         <span><Icon name="mouse" size={14} /> Drag to orbit</span>

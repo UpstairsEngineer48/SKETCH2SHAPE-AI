@@ -1,5 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+myenv/
+.venv/
+venv/
+env/
+
+# Env / secrets (keep .env.example)
+.env
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs (backend/logs/ is covered by *.log)
+*.log
+
+# Frontend
 node_modules/
 dist/
-.env
-.DS_Store
-*.log
+
+# Generated jobs
+backend/base/outputs/*
+!backend/base/outputs/.gitkeep

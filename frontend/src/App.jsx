@@ -3,7 +3,10 @@ import Icon from './components/Icon.jsx';
 import SketchCanvas from './components/SketchCanvas.jsx';
 import UploadPanel from './components/UploadPanel.jsx';
 import ModelViewer from './components/ModelViewer.jsx';
-import { checkApiHealth, generateModel } from './lib/api.js';
+import { checkApiHealth, generateModel, getBackends } from './lib/api.js';
+import { log } from './lib/logger.js';
+
+const BACKEND_NAMES={hunyuan:'Hunyuan3D (local)',instantmesh_local:'InstantMesh (local)',instantmesh_api:'InstantMesh (API)'};
 
 const PROMPT_SUGGESTIONS = ['Product design', 'Matte ceramic', 'Soft rounded edges', 'Studio lighting'];
 
@@ -45,6 +48,19 @@ export default function App() {
   const [apiState, setApiState] = useState('checking');
   const [apiDetail, setApiDetail] = useState('Checking the generation API');
   const [progress,setProgress]=useState(null);
+  const lastApiState=useRef(null);
+  const [backends,setBackends]=useState([{id:'auto',label:'Auto (with fallback)',available:true,note:''}]);
+  const [backend,setBackend]=useState(()=>{
+    try{return localStorage.getItem('backend')||'auto';}catch{return 'auto';}
+  });
+
+  // one log line per API status change (checking -> warming -> online ...), not per poll
+  useEffect(()=>{
+    if(lastApiState.current===apiState)return;
+    const level=apiState==='offline'?'warn':'info';
+    log[level](`API status: ${apiState}`,{detail:apiDetail});
+    lastApiState.current=apiState;
+  },[apiState,apiDetail]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -83,6 +99,14 @@ export default function App() {
     return ()=>{active=false;clearTimeout(timer);};
   },[]);
 
+  useEffect(()=>{
+    getBackends().then((list)=>{if(list.length)setBackends(list);}).catch(()=>{});
+  },[]);
+
+  useEffect(()=>{
+    try{localStorage.setItem('backend',backend);}catch{}
+  },[backend]);
+
   useEffect(() => {
     return () => {
       if (output?.isObjectUrl && output.modelUrl) URL.revokeObjectURL(output.modelUrl);
@@ -111,10 +135,12 @@ export default function App() {
         imageFile = await sketchRef.current?.toFile();
       }
       if (!imageFile) {
+        log.warn('Generate clicked with no input',{inputMode});
         setErrorMessage(inputMode === 'draw' ? 'Draw a sketch on the canvas before generating.' : 'Upload a sketch image before generating.');
         return;
       }
 
+      log.info('Generate clicked',{inputMode,backend,fileName:imageFile.name,fileBytes:imageFile.size});
       setGenerationState('generating');
       setProgress(null);
       setApiDetail('Submitting sketch to the generation API');
@@ -123,17 +149,19 @@ export default function App() {
         image: imageFile,
         prompt,
         inputType: inputMode,
+        backend,
         signal: controller.signal,
         onProgress:(job)=>{setProgress(job);setApiDetail(job.label||'Working...');},
       });
 
+      log.info('Model ready',{jobId:result.jobId,format:result.format,backend:result.backend});
       setOutput(result);
       setProgress(null);
       setGenerationState('complete');
       setApiState('online');
       setApiDetail('Generation API is reachable');
     } catch (error) {
-      console.error(error);
+      log.error('Generation failed',{message:error.message});
       setGenerationState('error');
       setProgress(null);
       setErrorMessage(error.message || 'Something went wrong while generating the model.');
@@ -146,6 +174,7 @@ export default function App() {
     try {
       const response = await fetch(output.modelUrl);
       if (!response.ok) throw new Error('Download request failed');
+      log.info('Export clicked',{jobId:output.jobId,format:output.format});
       const blob = await response.blob();
       const temporaryUrl = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
@@ -156,12 +185,13 @@ export default function App() {
       anchor.remove();
       URL.revokeObjectURL(temporaryUrl);
     } catch (error) {
-      console.error(error);
+      log.warn('Download via fetch failed, opening in a new tab',{message:error.message});
       window.open(output.modelUrl, '_blank', 'noopener,noreferrer');
     }
   };
 
   const resetOutput = () => {
+    log.info('Output cleared',{jobId:output?.jobId});
     setOutput(null);
     setGenerationState('idle');
     setErrorMessage('');
@@ -177,7 +207,7 @@ export default function App() {
         </a>
         <nav className="top-nav" aria-label="Main navigation">
           <a className="nav-active" href="#workspace">Workspace</a>
-          <a href="#workflow">How it works</a>
+        
         </nav>
         <div className="topbar-right">
           <div className={`api-status api-${apiState}`} title={apiDetail}>
@@ -193,7 +223,7 @@ export default function App() {
           >
             {theme === 'dark' ? <SunIcon /> : <MoonIcon />}
           </button>
-          <span className="version-tag">BETA <span>·</span> 0.1</span>
+          <span className="version-tag"> Ver<span>·</span> 1.0</span>
         </div>
       </header>
 
@@ -283,6 +313,16 @@ export default function App() {
               <div className="error-banner" role="alert"><Icon name="alert" size={17} /><span>{errorMessage}</span></div>
             )}
 
+            <div className="backend-picker">
+              <label htmlFor="backend-select">3D engine</label>
+              <select id="backend-select" value={backend} onChange={(event)=>setBackend(event.target.value)} disabled={generationState==='generating'}>
+                {backends.map((item)=>(
+                  <option key={item.id} value={item.id} disabled={!item.available}>{item.label}{item.available?'':` (${item.note||'unavailable'})`}</option>
+                ))}
+              </select>
+              <small>{backend==='auto'?`Tries in order: ${backends.find((b)=>b.id==='auto')?.note||'default'}`:'Only this engine runs, no fallback'}</small>
+            </div>
+
             <div className="generate-area">
               <button
                 className="generate-button"
@@ -313,7 +353,7 @@ export default function App() {
                 <span className="file-icon"><Icon name="cube" size={17} /></span>
                 <div>
                   <strong>{output?.filename || 'No model generated yet'}</strong>
-                  <span>{output ? `3D asset · ${formatLabel(output.format)} format` : 'Your export will be listed here'}</span>
+                  <span>{output ? `3D asset · ${formatLabel(output.format)} format${output.backend?` · ${BACKEND_NAMES[output.backend]||output.backend}`:''}` : 'Your export will be listed here'}</span>
                 </div>
               </div>
               <div className="output-actions">
@@ -331,20 +371,6 @@ export default function App() {
             </div>
             {output?.jobId && <div className="job-reference">JOB ID <code>{output.jobId}</code></div>}
           </section>
-        </section>
-
-        <section id="workflow" className="workflow-section">
-          <div className="workflow-title">
-            <span className="eyebrow"><span className="eyebrow-line" /> THE WORKFLOW</span>
-            <h2>A small sketch. <span>A new dimension.</span></h2>
-          </div>
-          <div className="workflow-steps">
-            <div className="workflow-step"><span className="workflow-number">01</span><div><strong>Sketch conditioning</strong><p>Draw or upload a source image. Add optional details to guide the result.</p></div><Icon name="pen" size={19} /></div>
-            <div className="workflow-connector" />
-            <div className="workflow-step"><span className="workflow-number">02</span><div><strong>Image-to-3D</strong><p>The backend interprets the concept and reconstructs plausible geometry.</p></div><Icon name="cube" size={19} /></div>
-            <div className="workflow-connector" />
-            <div className="workflow-step"><span className="workflow-number">03</span><div><strong>Inspect & export</strong><p>Orbit around the output, then save a usable GLB or OBJ asset.</p></div><Icon name="download" size={19} /></div>
-          </div>
         </section>
       </main>
 
