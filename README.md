@@ -63,7 +63,7 @@ Force it with `S2S_FAST=1`, or turn it off with `S2S_FAST=0` for slightly better
 | `S2S_LOW_VRAM` | off | CPU offload for small GPUs |
 | `S2S_REMBG_MODEL` | `u2net` | `u2netp` is smaller and faster |
 
-## 3D backends
+### 3D backends
 
 The last step (cutout -> mesh) has three backends. They are tried in order and
 the next one is used when one fails:
@@ -87,6 +87,38 @@ set S2S_MESH=instantmesh_api,hunyuan       # API first, Hunyuan as fallback
 (`instantmesh` still works as an alias of `instantmesh_api`.) The backend
 prints the active order at start, and a finished job reports which backend made
 it in the `backend` field of `/api/jobs/<id>`.
+
+
+### Hunyuan3D setup (shape-only engine)
+
+Hunyuan3D runs in its own environment, started by the backend as a separate process.
+
+1. Clone the repo and make an env (PowerShell):
+
+   git clone https://github.com/Tencent/Hunyuan3D-2.git
+   cd Hunyuan3D-2
+   python -m venv .venv
+   .venv\Scripts\activate
+
+2. Install CUDA torch first, then the repo:
+
+   pip install torch --index-url https://download.pytorch.org/whl/cu121
+   pip install -r requirements.txt
+   pip install -e .
+
+   Only the shape model is used, so the texture extensions (custom_rasterizer,
+   differentiable_renderer) do NOT need to be built.
+
+3. Check the install:
+
+   python -c "from hy3dgen.shapegen import Hunyuan3DDiTFlowMatchingPipeline; print('ok')"
+
+4. Point the backend at it before `python app.py`:
+
+   $env:S2S_HY_PYTHON="C:\path\to\Hunyuan3D-2\.venv\Scripts\python.exe"
+
+The model weights (tencent/Hunyuan3D-2mini) download automatically on the first
+job, so that run is slower. If it runs out of memory, lower `S2S_HY_OCT` (e.g. 192).
 
 ### Local InstantMesh setup
 
