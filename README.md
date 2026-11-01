@@ -10,31 +10,36 @@ geometry, finite vertices, real 3D volume). The result page shows what was found
 
 - NVIDIA GPU strongly recommended (CPU works but is very slow). Tested on an RTX 4050 laptop GPU
 - Windows (tested); macOS/Linux should work for the backend and frontend
-- Python 3.13 for the backend (local InstantMesh needs its own 3.10 env, see below)
+- Python 3.13 for the backend; Hunyuan3D and local InstantMesh use their own envs (see below)
 - Node 18 or newer for the frontend
 
 ## Run it
 
-**Backend** (terminal 1)
+**Backend** (terminal 1, PowerShell)
 
 ```
-cd backend
-python -m venv .venv
-.venv\Scripts\activate            # macOS/Linux: source .venv/bin/activate
+cd ./backend
+.venv\Scripts\activate
+$env:HF_TOKEN="hf_xxxxxxxx"        # your own free Hugging Face token
+$env:S2S_HY_PYTHON="C:\Users\PRANJAL\Hunyuan3D-2\.venv\Scripts\python.exe"
+$env:S2S_IM_DIR="C:\Users\PRANJAL\InstantMesh"
+$env:S2S_IM_PYTHON="C:\Users\PRANJAL\InstantMesh\.venv\Scripts\python.exe"
+$env:S2S_IM_CONFIG="configs/lowvram/instant-mesh-base.yaml"
+$env:S2S_LOW_VRAM="1"
+$env:PYTORCH_CUDA_ALLOC_CONF="max_split_size_mb:128"
+# optional: override the engine order (default: instantmesh_local,instantmesh_api,hunyuan)
+# $env:S2S_MESH="hunyuan,instantmesh_local,instantmesh_api"
 
 # NVIDIA GPU? install the CUDA torch FIRST (pick your CUDA version on pytorch.org):
 pip install torch --index-url https://download.pytorch.org/whl/cu121
-
 pip install -r ../requirements.txt
-
-set HF_TOKEN=hf_xxxxxxxx          # PowerShell: $env:HF_TOKEN="hf_xxx"  |  bash: export HF_TOKEN=hf_xxx
 python app.py
 ```
 
 **Frontend** (terminal 2)
 
 ```
-cd frontend
+cd ./frontend
 npm install
 npm run dev
 ```
@@ -72,7 +77,7 @@ Force it with `S2S_FAST=1`, or turn it off with `S2S_FAST=0` for slightly better
 | `S2S_STEPS` | 20 (6 fast) | diffusion steps for the render |
 | `S2S_MVS_STEPS` | 50 | InstantMesh multi-view steps (30-75), API and local |
 | `S2S_LOW_VRAM` | off | CPU offload for small GPUs |
-| `S2S_REMBG_MODEL` | `u2net` | `u2netp` is smaller and faster |
+| `S2S_REMBG_MODEL` | `birefnet-general` | falls back to `isnet-general-use`, then `u2net` |
 
 ## 3D backends
 
@@ -92,13 +97,52 @@ corrupt counts as failed, so the next one is tried. Change the order with
 `S2S_MESH`. A single name turns the fallback off:
 
 ```
-set S2S_MESH=hunyuan                       # Hunyuan only (fastest to set up, no colour)
-set S2S_MESH=hunyuan,instantmesh_api       # Hunyuan first, API as fallback
+$env:S2S_MESH="hunyuan"                    # Hunyuan only (fastest to set up, no colour)
+$env:S2S_MESH="hunyuan,instantmesh_api"    # Hunyuan first, API as fallback
 ```
 
 (`instantmesh` still works as an alias of `instantmesh_api`.) The backend
 prints the active order at start, and a finished job reports which backend made
 it in the `backend` field of `/api/jobs/<id>`.
+
+### Hunyuan3D setup (shape-only engine)
+
+Hunyuan3D runs in its own environment, started by the backend as a separate process.
+
+1. Clone the repo and make an env (PowerShell):
+
+```
+git clone https://github.com/Tencent/Hunyuan3D-2.git
+cd Hunyuan3D-2
+python -m venv .venv
+.venv\Scripts\activate
+```
+
+2. Install CUDA torch first, then the repo:
+
+```
+pip install torch --index-url https://download.pytorch.org/whl/cu121
+pip install -r requirements.txt
+pip install -e .
+```
+
+   Only the shape model is used, so the texture extensions (custom_rasterizer,
+   differentiable_renderer) do NOT need to be built.
+
+3. Check the install:
+
+```
+python -c "from hy3dgen.shapegen import Hunyuan3DDiTFlowMatchingPipeline; print('ok')"
+```
+
+4. Point the backend at it before `python app.py`:
+
+```
+$env:S2S_HY_PYTHON="C:\path\to\Hunyuan3D-2\.venv\Scripts\python.exe"
+```
+
+The model weights (`tencent/Hunyuan3D-2mini`) download automatically on the first
+job, so that run is slower. If it runs out of memory, lower `S2S_HY_OCT` (e.g. 192).
 
 ### Local InstantMesh setup
 
@@ -114,12 +158,12 @@ needs a separate environment, not the backend one.
 3. Point the backend at it, then start `python app.py`:
 
 ```
-set S2S_IM_DIR=C:\path\to\InstantMesh
-set S2S_IM_PYTHON=C:\path\to\instantmesh-env\python.exe
+$env:S2S_IM_DIR="C:\path\to\InstantMesh"
+$env:S2S_IM_PYTHON="C:\path\to\instantmesh-env\Scripts\python.exe"
 ```
 
 It needs an NVIDIA GPU. If it runs out of memory, use
-`set S2S_IM_CONFIG=configs/instant-mesh-base.yaml`.
+`$env:S2S_IM_CONFIG="configs/instant-mesh-base.yaml"` (or the `lowvram` config).
 
 ## API
 
@@ -165,7 +209,8 @@ Notes:
 ## Performance (measured)
 
 Hardware: NVIDIA GeForce RTX 4050 Laptop GPU, Windows, Python 3.13, torch CUDA build
-(fill in: VRAM, system RAM, CPU, torch version). Render model on CUDA in fp16, 20 steps (`S2S_FAST` off).
+(fill in: VRAM, system RAM, CPU, torch version). Render model on CUDA in fp16, 20 steps (`S2S_FAST` off),
+with the environment settings shown under "Run it".
 
 Times in seconds, taken from `backend/logs/jobs/<id>.log` (one finished job each):
 
@@ -186,6 +231,7 @@ Times in seconds, taken from `backend/logs/jobs/<id>.log` (one finished job each
 - Output is a viewing/prototyping mesh, not print-ready or production topology.
 - Colour depends on the engine: InstantMesh writes vertex colours, Hunyuan3D-2mini writes plain grey geometry. No UV texture maps are produced.
 - Needs an NVIDIA GPU for reasonable speed. On CPU the render uses a 6-step LCM sampler and is slow.
+- Small GPUs (about 6 GB) can run out of memory with local InstantMesh; use the `lowvram` config and `S2S_LOW_VRAM=1`, or let Auto fall back to the API or Hunyuan.
 - One job runs at a time (a lock serialises GPU use); other jobs wait in the queue.
 - The `instantmesh_api` engine depends on a Hugging Face Space: availability, quota and its endpoints (`/preprocess`, `/generate_mvs`, `/make3d`) are outside this project's control. A cancelled API job stops on our side, the remote call finishes on its own.
 - The prompt only influences the render stage. Uploads classified as photos skip the render stage and ignore the prompt.
